@@ -9,9 +9,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from flask import Flask, jsonify, render_template, request
 
+import segmentation
+
 app = Flask(__name__)
 
-DISK_CACHE_PATH = os.path.join(os.path.dirname(__file__), "tile_cache.json")
+CACHE_DIR = os.environ.get("CACHE_DIR", os.path.dirname(__file__))
+os.makedirs(CACHE_DIR, exist_ok=True)
+DISK_CACHE_PATH = os.path.join(CACHE_DIR, "tile_cache.json")
 _disk_cache_lock = threading.Lock()
 
 # Miroirs Overpass accessibles depuis ce réseau (certains miroirs comme
@@ -281,6 +285,34 @@ def api_buildings():
     return jsonify({"type": "FeatureCollection", "features": unique_features})
 
 
+@app.route("/api/segment")
+def api_segment():
+    try:
+        lon = float(request.args["lon"])
+        lat = float(request.args["lat"])
+    except (KeyError, ValueError):
+        return jsonify({"error": "Paramètres lon/lat invalides"}), 400
+
+    if not _bbox_within_morocco((lat, lon, lat, lon)):
+        return jsonify({"error": "Point hors du Maroc"}), 400
+
+    try:
+        result = segmentation.segment_building_at(lon, lat)
+    except Exception as exc:
+        return jsonify({"error": f"Échec de la segmentation: {exc}"}), 502
+
+    if result is None:
+        return jsonify({"error": "Aucun bâtiment détecté à cet endroit"}), 404
+
+    return jsonify(
+        {
+            "type": "Feature",
+            "geometry": {"type": "Polygon", "coordinates": [result["polygon"] + [result["polygon"][0]]]},
+            "properties": {"area_m2": result["area_m2"], "source": "ia-segmentation"},
+        }
+    )
+
+
 def _city_viewport_bbox(center, half_span_deg=0.012):
     lat, lon = center
     return (lat - half_span_deg, lon - half_span_deg, lat + half_span_deg, lon + half_span_deg)
@@ -318,8 +350,17 @@ def _prewarm_cities():
     _save_disk_cache()
 
 
+def _prewarm_segmentation_model():
+    """Télécharge le checkpoint et charge MobileSAM en mémoire pour un premier clic rapide."""
+    try:
+        segmentation._get_predictor()
+    except Exception:
+        pass
+
+
 if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
     threading.Thread(target=_prewarm_cities, daemon=True).start()
+    threading.Thread(target=_prewarm_segmentation_model, daemon=True).start()
 
 if __name__ == "__main__":
     app.run(debug=True)

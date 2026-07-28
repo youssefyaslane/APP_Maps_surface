@@ -1,7 +1,9 @@
 venv/
 __pycache__/
 *.pyc
+.git/
+.claude/
 tile_cache.json
 server.log
-.claude/
 mobile_sam.pt
+README.md

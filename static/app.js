@@ -13,11 +13,26 @@ const map = L.map("map", {
   maxBoundsViscosity: 0.8,
 });
 
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution:
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   maxZoom: 19,
-}).addTo(map);
+});
+
+const satelliteLayer = L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  {
+    attribution:
+      "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+    maxZoom: 19,
+  }
+);
+
+streetLayer.addTo(map);
+
+L.control
+  .layers({ "Plan": streetLayer, "Satellite": satelliteLayer })
+  .addTo(map);
 
 const buildingsLayer = L.geoJSON(null, {
   style: () => ({
@@ -37,6 +52,23 @@ const buildingsLayer = L.geoJSON(null, {
         buildingsLayer.resetStyle(e.target);
         hideTooltip();
       },
+    });
+  },
+}).addTo(map);
+
+const segmentationLayer = L.geoJSON(null, {
+  style: () => ({
+    color: "#ff5252",
+    weight: 2,
+    dashArray: "6 4",
+    fillColor: "#ff8a80",
+    fillOpacity: 0.35,
+  }),
+  onEachFeature: (feature, layer) => {
+    layer.on({
+      mouseover: (e) => showTooltip(e, { ...feature.properties, name: "Bâtiment détecté par IA" }),
+      mousemove: (e) => moveTooltip(e),
+      mouseout: () => hideTooltip(),
     });
   },
 }).addTo(map);
@@ -165,5 +197,44 @@ citySelectEl.addEventListener("change", () => {
 });
 
 map.on("moveend zoomend", scheduleLoadBuildings);
+
+let segmentationInFlight = false;
+
+async function segmentAtLatLng(latlng) {
+  if (segmentationInFlight) return;
+  if (map.getZoom() < MIN_ZOOM_FOR_BUILDINGS) {
+    setStatus("Zoomez davantage pour utiliser la détection IA.", true);
+    setTimeout(() => setStatus(null), 2500);
+    return;
+  }
+
+  segmentationInFlight = true;
+  const marker = L.circleMarker(latlng, { radius: 5, color: "#ff5252" }).addTo(map);
+  setStatus("Analyse IA de l'imagerie satellite en cours (peut prendre quelques secondes)...");
+
+  try {
+    const params = new URLSearchParams({ lon: latlng.lng, lat: latlng.lat });
+    const resp = await fetch(`/api/segment?${params.toString()}`);
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      setStatus(data.error || "Échec de la détection IA", true);
+      setTimeout(() => setStatus(null), 3000);
+      return;
+    }
+
+    segmentationLayer.addData(data);
+    setStatus(`Bâtiment détecté par IA : ${data.properties.area_m2.toLocaleString("fr-FR")} m²`);
+    setTimeout(() => setStatus(null), 4000);
+  } catch (err) {
+    setStatus("Erreur réseau pendant la détection IA", true);
+    setTimeout(() => setStatus(null), 3000);
+  } finally {
+    map.removeLayer(marker);
+    segmentationInFlight = false;
+  }
+}
+
+map.on("click", (e) => segmentAtLatLng(e.latlng));
 
 loadCitiesInfo();
