@@ -66,12 +66,67 @@ const segmentationLayer = L.geoJSON(null, {
   }),
   onEachFeature: (feature, layer) => {
     layer.on({
-      mouseover: (e) => showTooltip(e, { ...feature.properties, name: "Bâtiment détecté par IA" }),
+      mouseover: (e) => showTooltip(e, { ...feature.properties, name: "Bâtiment détecté par IA (clic pour supprimer)" }),
       mousemove: (e) => moveTooltip(e),
       mouseout: () => hideTooltip(),
+      click: (e) => {
+        L.DomEvent.stopPropagation(e);
+        deleteIaSegment(feature.id, layer);
+      },
     });
   },
 }).addTo(map);
+
+const loadedIaIds = new Set();
+
+function addIaFeatures(featureCollection) {
+  const newFeatures = featureCollection.features.filter((f) => {
+    if (loadedIaIds.has(f.id)) return false;
+    loadedIaIds.add(f.id);
+    return true;
+  });
+  if (newFeatures.length) {
+    segmentationLayer.addData({ type: "FeatureCollection", features: newFeatures });
+  }
+}
+
+async function deleteIaSegment(id, layer) {
+  if (!confirm("Supprimer ce toit détecté par IA ?")) return;
+  try {
+    const resp = await fetch(`/api/ia_segments/${id}`, { method: "DELETE" });
+    if (!resp.ok) {
+      setStatus("Échec de la suppression", true);
+      setTimeout(() => setStatus(null), 2500);
+      return;
+    }
+    segmentationLayer.removeLayer(layer);
+    loadedIaIds.delete(id);
+  } catch (err) {
+    setStatus("Erreur réseau pendant la suppression", true);
+    setTimeout(() => setStatus(null), 2500);
+  }
+}
+
+async function loadIaSegments() {
+  if (map.getZoom() < MIN_ZOOM_FOR_BUILDINGS) return;
+
+  const bounds = map.getBounds();
+  const params = new URLSearchParams({
+    south: bounds.getSouth(),
+    west: bounds.getWest(),
+    north: bounds.getNorth(),
+    east: bounds.getEast(),
+  });
+
+  try {
+    const resp = await fetch(`/api/ia_segments?${params.toString()}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    addIaFeatures(data);
+  } catch (err) {
+    // rechargement silencieux, non bloquant
+  }
+}
 
 const hintEl = document.getElementById("hint");
 const tooltipEl = document.getElementById("tooltip");
@@ -121,7 +176,10 @@ let debounceTimer = null;
 
 function scheduleLoadBuildings() {
   clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(loadBuildings, 400);
+  debounceTimer = setTimeout(() => {
+    loadBuildings();
+    loadIaSegments();
+  }, 400);
 }
 
 async function loadBuildings() {
@@ -223,7 +281,7 @@ async function segmentAtLatLng(latlng) {
       return;
     }
 
-    segmentationLayer.addData(data);
+    addIaFeatures({ type: "FeatureCollection", features: [data] });
     setStatus(`Bâtiment détecté par IA : ${data.properties.area_m2.toLocaleString("fr-FR")} m²`);
     setTimeout(() => setStatus(null), 4000);
   } catch (err) {
@@ -235,6 +293,118 @@ async function segmentAtLatLng(latlng) {
   }
 }
 
-map.on("click", (e) => segmentAtLatLng(e.latlng));
+map.on("click", (e) => {
+  if (zoneSelectMode) return;
+  segmentAtLatLng(e.latlng);
+});
+
+const DEFAULT_HINT = hintEl.textContent;
+const zoneBtn = document.getElementById("zone-select-btn");
+let zoneSelectMode = false;
+let zoneDrawing = false;
+let zoneStartLatLng = null;
+let zoneRectangle = null;
+
+zoneBtn.addEventListener("click", () => {
+  zoneSelectMode = !zoneSelectMode;
+  zoneBtn.classList.toggle("active", zoneSelectMode);
+  map.getContainer().style.cursor = zoneSelectMode ? "crosshair" : "";
+
+  if (zoneSelectMode) {
+    map.dragging.disable();
+    hintEl.textContent = "Cliquez-glissez sur la carte pour sélectionner une zone à analyser par IA.";
+  } else {
+    map.dragging.enable();
+    hintEl.textContent = DEFAULT_HINT;
+    if (zoneRectangle) {
+      map.removeLayer(zoneRectangle);
+      zoneRectangle = null;
+    }
+  }
+});
+
+map.on("mousedown", (e) => {
+  if (!zoneSelectMode || segmentationInFlight) return;
+  zoneDrawing = true;
+  zoneStartLatLng = e.latlng;
+  if (zoneRectangle) {
+    map.removeLayer(zoneRectangle);
+    zoneRectangle = null;
+  }
+});
+
+map.on("mousemove", (e) => {
+  if (!zoneDrawing) return;
+  const bounds = L.latLngBounds(zoneStartLatLng, e.latlng);
+  if (zoneRectangle) {
+    zoneRectangle.setBounds(bounds);
+  } else {
+    zoneRectangle = L.rectangle(bounds, { color: "#2979ff", weight: 2, fillOpacity: 0.08 }).addTo(map);
+  }
+});
+
+map.on("mouseup", (e) => {
+  if (!zoneDrawing) return;
+  zoneDrawing = false;
+  const bounds = L.latLngBounds(zoneStartLatLng, e.latlng);
+  zoneStartLatLng = null;
+
+  // Ignore un drag trop petit (clic accidentel)
+  if (bounds.getNorthEast().distanceTo(bounds.getSouthWest()) < 10) {
+    if (zoneRectangle) {
+      map.removeLayer(zoneRectangle);
+      zoneRectangle = null;
+    }
+    return;
+  }
+
+  segmentZone(bounds);
+});
+
+async function segmentZone(bounds) {
+  if (segmentationInFlight) return;
+  if (map.getZoom() < MIN_ZOOM_FOR_BUILDINGS) {
+    setStatus("Zoomez davantage pour utiliser la détection IA de zone.", true);
+    setTimeout(() => setStatus(null), 2500);
+    return;
+  }
+
+  segmentationInFlight = true;
+  setStatus("Analyse IA de la zone en cours (peut prendre 30 à 60 secondes)...");
+
+  try {
+    const params = new URLSearchParams({
+      south: bounds.getSouth(),
+      west: bounds.getWest(),
+      north: bounds.getNorth(),
+      east: bounds.getEast(),
+    });
+    const resp = await fetch(`/api/segment_zone?${params.toString()}`);
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      setStatus(data.error || "Échec de la détection IA de zone", true);
+      setTimeout(() => setStatus(null), 3500);
+      return;
+    }
+
+    addIaFeatures(data);
+    setStatus(
+      data.features.length
+        ? `${data.features.length} toit(s) détecté(s) dans la zone`
+        : "Aucun toit détecté dans cette zone"
+    );
+    setTimeout(() => setStatus(null), 4000);
+  } catch (err) {
+    setStatus("Erreur réseau pendant la détection IA de zone", true);
+    setTimeout(() => setStatus(null), 3000);
+  } finally {
+    segmentationInFlight = false;
+    if (zoneRectangle) {
+      map.removeLayer(zoneRectangle);
+      zoneRectangle = null;
+    }
+  }
+}
 
 loadCitiesInfo();

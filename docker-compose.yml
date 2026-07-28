@@ -5,6 +5,20 @@ services:
       - "5000:5000"
     volumes:
       - cache_data:/app/cache
+    environment:
+      - DATABASE_URL=postgresql://maps:maps@db:5432/maps
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=maps
+      - POSTGRES_PASSWORD=maps
+      - POSTGRES_DB=maps
+    volumes:
+      - pg_data:/var/lib/postgresql/data
 
 volumes:
   cache_data:
+  pg_data:

@@ -22,7 +22,12 @@ TILE_SIZE_PX = 256
 ZOOM = 19  # niveau de zoom XYZ utilisé pour l'extraction (haute résolution)
 GRID_TILES = 3  # grille de 3x3 tuiles autour du point cliqué, pour avoir du contexte
 
+ZONE_MAX_GRID = 6  # zone max ~6x6 tuiles (~400m de côté à ce zoom) pour un calcul en temps raisonnable
+MIN_ROOF_AREA_M2 = 15.0
+MAX_ROOF_AREA_M2 = 4000.0
+
 _predictor = None
+_mask_generator = None
 
 
 def _lonlat_to_tile_xy(lon, lat, zoom):
@@ -82,6 +87,41 @@ def _fetch_composite_image(center_lon, center_lat, zoom=ZOOM, grid=GRID_TILES):
     return composite, georef, (click_px_x, click_px_y)
 
 
+def _fetch_composite_for_bbox(south, west, north, east, zoom=ZOOM):
+    """Assemble en une seule image toutes les tuiles couvrant la bbox donnée."""
+    tl_x, tl_y = _lonlat_to_tile_xy(west, north, zoom)
+    br_x, br_y = _lonlat_to_tile_xy(east, south, zoom)
+    tile_x0, tile_y0 = int(tl_x), int(tl_y)
+    tile_x1, tile_y1 = int(br_x), int(br_y)
+
+    grid_w = max(tile_x1 - tile_x0 + 1, 1)
+    grid_h = max(tile_y1 - tile_y0 + 1, 1)
+    if grid_w > ZONE_MAX_GRID or grid_h > ZONE_MAX_GRID:
+        raise ValueError("Zone trop grande, sélectionnez une zone plus petite (quelques centaines de mètres)")
+
+    composite = Image.new("RGB", (TILE_SIZE_PX * grid_w, TILE_SIZE_PX * grid_h))
+    for row in range(grid_h):
+        for col in range(grid_w):
+            tx = tile_x0 + col
+            ty = tile_y0 + row
+            try:
+                tile_img = _fetch_tile_image(tx, ty, zoom)
+            except requests.RequestException:
+                tile_img = Image.new("RGB", (TILE_SIZE_PX, TILE_SIZE_PX), (128, 128, 128))
+            composite.paste(tile_img, (col * TILE_SIZE_PX, row * TILE_SIZE_PX))
+
+    top_left_lon, top_left_lat = _tile_xy_to_lonlat(tile_x0, tile_y0, zoom)
+    bottom_right_lon, bottom_right_lat = _tile_xy_to_lonlat(tile_x0 + grid_w, tile_y0 + grid_h, zoom)
+
+    georef = {
+        "top_left": (top_left_lon, top_left_lat),
+        "bottom_right": (bottom_right_lon, bottom_right_lat),
+        "width_px": TILE_SIZE_PX * grid_w,
+        "height_px": TILE_SIZE_PX * grid_h,
+    }
+    return composite, georef
+
+
 def _pixel_to_lonlat(px, py, georef):
     tl_lon, tl_lat = georef["top_left"]
     br_lon, br_lat = georef["bottom_right"]
@@ -117,6 +157,27 @@ def _get_predictor():
     model.eval()
     _predictor = SamPredictor(model)
     return _predictor
+
+
+def _get_mask_generator():
+    global _mask_generator
+    if _mask_generator is not None:
+        return _mask_generator
+
+    _download_checkpoint()
+
+    from mobile_sam import SamAutomaticMaskGenerator, sam_model_registry
+
+    model = sam_model_registry["vit_t"](checkpoint=CHECKPOINT_PATH)
+    model.eval()
+    _mask_generator = SamAutomaticMaskGenerator(
+        model,
+        points_per_side=16,
+        pred_iou_thresh=0.86,
+        stability_score_thresh=0.9,
+        min_mask_region_area=200,
+    )
+    return _mask_generator
 
 
 def _mask_to_polygon_px(mask):
@@ -190,3 +251,43 @@ def segment_building_at(lon, lat):
         "polygon": [[lon_, lat_] for lon_, lat_ in polygon_lonlat],
         "area_m2": round(area, 1),
     }
+
+
+def segment_roofs_in_zone(south, west, north, east):
+    """Détecte et segmente automatiquement tous les toits visibles dans la bbox donnée.
+
+    Retourne une liste de dicts {polygon: [[lon, lat], ...], area_m2: float}.
+    Peut lever ValueError si la zone demandée est trop grande.
+    """
+    composite, georef = _fetch_composite_for_bbox(south, west, north, east)
+
+    generator = _get_mask_generator()
+    image_np = np.array(composite)
+    annotations = generator.generate(image_np)
+
+    width_px, height_px = georef["width_px"], georef["height_px"]
+
+    results = []
+    for ann in annotations:
+        x, y, w, h = ann["bbox"]
+        # Écarte les formes qui touchent le bord de l'image (probablement coupées)
+        if x <= 0 or y <= 0 or x + w >= width_px or y + h >= height_px:
+            continue
+
+        polygon_px = _mask_to_polygon_px(ann["segmentation"])
+        if not polygon_px or len(polygon_px) < 3:
+            continue
+
+        polygon_lonlat = [_pixel_to_lonlat(px, py, georef) for px, py in polygon_px]
+        area = _polygon_area_m2(polygon_lonlat)
+        if area < MIN_ROOF_AREA_M2 or area > MAX_ROOF_AREA_M2:
+            continue
+
+        results.append(
+            {
+                "polygon": [[lon_, lat_] for lon_, lat_ in polygon_lonlat],
+                "area_m2": round(area, 1),
+            }
+        )
+
+    return results

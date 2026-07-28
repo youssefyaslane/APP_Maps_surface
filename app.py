@@ -6,6 +6,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import psycopg2
+import psycopg2.pool
 import requests
 from flask import Flask, jsonify, render_template, request
 
@@ -17,6 +19,129 @@ CACHE_DIR = os.environ.get("CACHE_DIR", os.path.dirname(__file__))
 os.makedirs(CACHE_DIR, exist_ok=True)
 DISK_CACHE_PATH = os.path.join(CACHE_DIR, "tile_cache.json")
 _disk_cache_lock = threading.Lock()
+
+# Toits détectés par IA (clic simple ou zone), persistés dans PostgreSQL pour
+# rester affichés d'une session à l'autre, et supprimables par l'utilisateur.
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://maps:maps@db:5432/maps")
+# Distance de dédoublonnage (en degrés) : deux détections dont le centroïde
+# est plus proche que ça sont considérées comme le même toit.
+IA_SEGMENT_DEDUP_DEG = 0.00005
+_db_pool = None
+
+
+def _get_db_pool():
+    global _db_pool
+    if _db_pool is not None:
+        return _db_pool
+    last_error = None
+    for _ in range(15):
+        try:
+            _db_pool = psycopg2.pool.ThreadedConnectionPool(1, 10, DATABASE_URL)
+            return _db_pool
+        except psycopg2.OperationalError as exc:
+            last_error = exc
+            time.sleep(1)
+    raise RuntimeError(f"Impossible de se connecter à PostgreSQL: {last_error}")
+
+
+def _init_db():
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ia_segments (
+                    id SERIAL PRIMARY KEY,
+                    polygon JSONB NOT NULL,
+                    area_m2 DOUBLE PRECISION NOT NULL,
+                    centroid_lon DOUBLE PRECISION NOT NULL,
+                    centroid_lat DOUBLE PRECISION NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ia_segments_centroid "
+                "ON ia_segments (centroid_lat, centroid_lon)"
+            )
+    finally:
+        pool.putconn(conn)
+
+
+def _polygon_centroid(coords):
+    lon = sum(c[0] for c in coords) / len(coords)
+    lat = sum(c[1] for c in coords) / len(coords)
+    return lon, lat
+
+
+def _store_ia_segment(polygon, area_m2):
+    """Sauvegarde un toit détecté par IA (ou renvoie l'entrée existante si déjà stocké)."""
+    lon, lat = _polygon_centroid(polygon)
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, polygon, area_m2 FROM ia_segments
+                WHERE centroid_lon BETWEEN %s AND %s AND centroid_lat BETWEEN %s AND %s
+                LIMIT 1
+                """,
+                (
+                    lon - IA_SEGMENT_DEDUP_DEG,
+                    lon + IA_SEGMENT_DEDUP_DEG,
+                    lat - IA_SEGMENT_DEDUP_DEG,
+                    lat + IA_SEGMENT_DEDUP_DEG,
+                ),
+            )
+            existing = cur.fetchone()
+            if existing:
+                return {"id": existing[0], "polygon": existing[1], "area_m2": existing[2]}
+
+            cur.execute(
+                """
+                INSERT INTO ia_segments (polygon, area_m2, centroid_lon, centroid_lat)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+                """,
+                (json.dumps(polygon), area_m2, lon, lat),
+            )
+            new_id = cur.fetchone()[0]
+            return {"id": new_id, "polygon": polygon, "area_m2": area_m2}
+    finally:
+        pool.putconn(conn)
+
+
+def _query_ia_segments(bbox):
+    south, west, north, east = bbox
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, polygon, area_m2 FROM ia_segments
+                WHERE centroid_lat BETWEEN %s AND %s AND centroid_lon BETWEEN %s AND %s
+                """,
+                (south, north, west, east),
+            )
+            rows = cur.fetchall()
+    finally:
+        pool.putconn(conn)
+    return [{"id": r[0], "polygon": r[1], "area_m2": r[2]} for r in rows]
+
+
+def _delete_ia_segment(seg_id):
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM ia_segments WHERE id = %s", (seg_id,))
+            deleted = cur.rowcount > 0
+    finally:
+        pool.putconn(conn)
+    return deleted
 
 # Miroirs Overpass accessibles depuis ce réseau (certains miroirs comme
 # overpass-api.de/overpass.kumi.systems sont bloqués par le pare-feu local).
@@ -304,13 +429,83 @@ def api_segment():
     if result is None:
         return jsonify({"error": "Aucun bâtiment détecté à cet endroit"}), 404
 
+    stored = _store_ia_segment(result["polygon"], result["area_m2"])
+
     return jsonify(
         {
             "type": "Feature",
-            "geometry": {"type": "Polygon", "coordinates": [result["polygon"] + [result["polygon"][0]]]},
-            "properties": {"area_m2": result["area_m2"], "source": "ia-segmentation"},
+            "id": stored["id"],
+            "geometry": {"type": "Polygon", "coordinates": [stored["polygon"] + [stored["polygon"][0]]]},
+            "properties": {"area_m2": stored["area_m2"], "source": "ia-segmentation"},
         }
     )
+
+
+@app.route("/api/segment_zone")
+def api_segment_zone():
+    try:
+        south = float(request.args["south"])
+        west = float(request.args["west"])
+        north = float(request.args["north"])
+        east = float(request.args["east"])
+    except (KeyError, ValueError):
+        return jsonify({"error": "Paramètres bbox invalides (south, west, north, east requis)"}), 400
+
+    if not _bbox_within_morocco((south, west, north, east)):
+        return jsonify({"error": "Zone hors du Maroc"}), 400
+
+    try:
+        results = segmentation.segment_roofs_in_zone(south, west, north, east)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"error": f"Échec de la segmentation: {exc}"}), 502
+
+    stored_segments = [_store_ia_segment(r["polygon"], r["area_m2"]) for r in results]
+
+    features = [
+        {
+            "type": "Feature",
+            "id": s["id"],
+            "geometry": {"type": "Polygon", "coordinates": [s["polygon"] + [s["polygon"][0]]]},
+            "properties": {"area_m2": s["area_m2"], "source": "ia-segmentation"},
+        }
+        for s in stored_segments
+    ]
+    return jsonify({"type": "FeatureCollection", "features": features})
+
+
+@app.route("/api/ia_segments")
+def api_ia_segments():
+    try:
+        south = float(request.args["south"])
+        west = float(request.args["west"])
+        north = float(request.args["north"])
+        east = float(request.args["east"])
+    except (KeyError, ValueError):
+        return jsonify({"error": "Paramètres bbox invalides (south, west, north, east requis)"}), 400
+
+    if (north - south) * (east - west) > 0.05:
+        return jsonify({"error": "Zone trop grande"}), 400
+
+    rows = _query_ia_segments((south, west, north, east))
+    features = [
+        {
+            "type": "Feature",
+            "id": r["id"],
+            "geometry": {"type": "Polygon", "coordinates": [r["polygon"] + [r["polygon"][0]]]},
+            "properties": {"area_m2": r["area_m2"], "source": "ia-segmentation"},
+        }
+        for r in rows
+    ]
+    return jsonify({"type": "FeatureCollection", "features": features})
+
+
+@app.route("/api/ia_segments/<int:seg_id>", methods=["DELETE"])
+def api_delete_ia_segment(seg_id):
+    if not _delete_ia_segment(seg_id):
+        return jsonify({"error": "Segmentation introuvable"}), 404
+    return jsonify({"ok": True})
 
 
 def _city_viewport_bbox(center, half_span_deg=0.012):
@@ -359,6 +554,7 @@ def _prewarm_segmentation_model():
 
 
 if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+    _init_db()
     threading.Thread(target=_prewarm_cities, daemon=True).start()
     threading.Thread(target=_prewarm_segmentation_model, daemon=True).start()
 

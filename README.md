@@ -9,6 +9,7 @@ Application Flask affichant une carte interactive du Maroc : au survol d'un bât
 - Récupération des bâtiments réels via l'API [Overpass](https://overpass-api.de/) (OSM), avec surface au sol calculée géométriquement
 - Survol d'un bâtiment (contour OSM, en vert) → nom, type, nombre d'étages et surface (m²)
 - **Détection IA au clic** : clic n'importe où sur la carte → segmentation du bâtiment visible sur l'imagerie satellite via [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) et calcul de sa surface, même hors couverture OSM (contour affiché en rouge pointillé)
+- **Détection IA par zone** : bouton « Sélectionner une zone » → glisser un rectangle sur la carte pour segmenter automatiquement tous les toits visibles dans la zone (sans avoir à cliquer bâtiment par bâtiment)
 - Cache par tuile (mémoire + disque) et récupération parallélisée pour des temps de réponse rapides
 - Préchargement automatique des grandes villes et du modèle IA au démarrage du serveur
 
@@ -71,6 +72,7 @@ docker-compose.yml      Orchestration + volume de cache persistant
 - `GET /api/cities` — liste des villes disponibles (nom, centre, zoom)
 - `GET /api/buildings?south=&west=&north=&east=` — bâtiments OSM (GeoJSON) dans la zone demandée
 - `GET /api/segment?lon=&lat=` — détection IA du bâtiment sous le point cliqué (GeoJSON + surface)
+- `GET /api/segment_zone?south=&west=&north=&east=` — détection IA automatique de tous les toits dans la zone (GeoJSON, zone limitée à ~400m de côté)
 
 Les bâtiments OSM sont récupérés depuis Overpass, découpés en tuiles de grille (`TILE_SIZE_DEG`) pour permettre un cache fin et des requêtes parallèles. La surface de chaque bâtiment (OSM ou détecté par IA) est calculée par projection équirectangulaire locale puis formule du lacet (shoelace).
 

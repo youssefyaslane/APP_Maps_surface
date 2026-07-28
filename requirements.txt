@@ -1,5 +1,6 @@
 Flask==3.0.3
 requests==2.32.3
+psycopg2-binary==2.9.9
 numpy
 pillow
 opencv-python-headless
