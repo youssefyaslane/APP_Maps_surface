@@ -22,7 +22,6 @@ TILE_SIZE_PX = 256
 ZOOM = 19  # niveau de zoom XYZ utilisé pour l'extraction (haute résolution)
 GRID_TILES = 3  # grille de 3x3 tuiles autour du point cliqué, pour avoir du contexte
 
-ZONE_MAX_GRID = 6  # zone max ~6x6 tuiles (~400m de côté à ce zoom) pour un calcul en temps raisonnable
 MIN_ROOF_AREA_M2 = 15.0
 MAX_ROOF_AREA_M2 = 4000.0
 
@@ -96,8 +95,6 @@ def _fetch_composite_for_bbox(south, west, north, east, zoom=ZOOM):
 
     grid_w = max(tile_x1 - tile_x0 + 1, 1)
     grid_h = max(tile_y1 - tile_y0 + 1, 1)
-    if grid_w > ZONE_MAX_GRID or grid_h > ZONE_MAX_GRID:
-        raise ValueError("Zone trop grande, sélectionnez une zone plus petite (quelques centaines de mètres)")
 
     composite = Image.new("RGB", (TILE_SIZE_PX * grid_w, TILE_SIZE_PX * grid_h))
     for row in range(grid_h):
@@ -291,3 +288,5 @@ def segment_roofs_in_zone(south, west, north, east):
         )
 
     return results
+
+

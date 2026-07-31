@@ -9,6 +9,7 @@ const map = L.map("map", {
   center: MOROCCO_CENTER,
   zoom: 6,
   minZoom: 5,
+  maxZoom: 22,
   maxBounds: MOROCCO_BOUNDS,
   maxBoundsViscosity: 0.8,
 });
@@ -16,7 +17,8 @@ const map = L.map("map", {
 const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution:
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  maxZoom: 19,
+  maxZoom: 22,
+  maxNativeZoom: 19,
 });
 
 const satelliteLayer = L.tileLayer(
@@ -24,7 +26,8 @@ const satelliteLayer = L.tileLayer(
   {
     attribution:
       "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
-    maxZoom: 19,
+    maxZoom: 22,
+    maxNativeZoom: 19,
   }
 );
 
@@ -57,16 +60,17 @@ const buildingsLayer = L.geoJSON(null, {
 }).addTo(map);
 
 const segmentationLayer = L.geoJSON(null, {
-  style: () => ({
-    color: "#ff5252",
-    weight: 2,
-    dashArray: "6 4",
-    fillColor: "#ff8a80",
-    fillOpacity: 0.35,
-  }),
+  style: (feature) =>
+    feature.properties.source === "manual-trace"
+      ? { color: "#2979ff", weight: 2, dashArray: "6 4", fillColor: "#82b1ff", fillOpacity: 0.35 }
+      : { color: "#ff5252", weight: 2, dashArray: "6 4", fillColor: "#ff8a80", fillOpacity: 0.35 },
   onEachFeature: (feature, layer) => {
+    const name =
+      feature.properties.source === "manual-trace"
+        ? "Toit tracé manuellement (clic pour supprimer)"
+        : "Bâtiment détecté par IA (clic pour supprimer)";
     layer.on({
-      mouseover: (e) => showTooltip(e, { ...feature.properties, name: "Bâtiment détecté par IA (clic pour supprimer)" }),
+      mouseover: (e) => showTooltip(e, { ...feature.properties, name }),
       mousemove: (e) => moveTooltip(e),
       mouseout: () => hideTooltip(),
       click: (e) => {
@@ -294,7 +298,7 @@ async function segmentAtLatLng(latlng) {
 }
 
 map.on("click", (e) => {
-  if (zoneSelectMode) return;
+  if (zoneSelectMode || pointsMode) return;
   segmentAtLatLng(e.latlng);
 });
 
@@ -311,6 +315,7 @@ zoneBtn.addEventListener("click", () => {
   map.getContainer().style.cursor = zoneSelectMode ? "crosshair" : "";
 
   if (zoneSelectMode) {
+    if (pointsMode) pointsBtn.click(); // modes mutuellement exclusifs
     map.dragging.disable();
     hintEl.textContent = "Cliquez-glissez sur la carte pour sélectionner une zone à analyser par IA.";
   } else {
@@ -370,7 +375,7 @@ async function segmentZone(bounds) {
   }
 
   segmentationInFlight = true;
-  setStatus("Analyse IA de la zone en cours (peut prendre 30 à 60 secondes)...");
+  setStatus("Analyse IA de la zone en cours (peut prendre 1 à 2 minutes pour une grande zone)...");
 
   try {
     const params = new URLSearchParams({
@@ -406,5 +411,108 @@ async function segmentZone(bounds) {
     }
   }
 }
+
+// --- Mode "tracer un toit" : l'utilisateur place lui-même les sommets du
+// contour au clic (aucun appel au modèle IA), puis valide pour calculer la
+// surface et l'enregistrer. Fonctionnalité indépendante du clic simple et
+// de la sélection de zone ci-dessus.
+
+const pointsBtn = document.getElementById("points-select-btn");
+const pointsControlsEl = document.getElementById("points-controls");
+const pointsConfirmBtn = document.getElementById("points-confirm-btn");
+const pointsCancelBtn = document.getElementById("points-cancel-btn");
+
+let pointsMode = false;
+let currentPoints = [];
+let pointMarkers = [];
+
+const tracePreviewLayer = L.polygon([], {
+  color: "#2979ff",
+  weight: 2,
+  dashArray: "3 3",
+  fillColor: "#82b1ff",
+  fillOpacity: 0.3,
+}).addTo(map);
+
+pointsBtn.addEventListener("click", () => {
+  pointsMode = !pointsMode;
+  pointsBtn.classList.toggle("active", pointsMode);
+
+  if (pointsMode) {
+    if (zoneSelectMode) zoneBtn.click(); // modes mutuellement exclusifs
+    hintEl.textContent = "Cliquez pour placer les sommets du contour du toit, puis Valider.";
+  } else {
+    clearPointsSession();
+    hintEl.textContent = DEFAULT_HINT;
+  }
+});
+
+function clearPointsSession() {
+  currentPoints = [];
+  pointMarkers.forEach((m) => map.removeLayer(m));
+  pointMarkers = [];
+  tracePreviewLayer.setLatLngs([]);
+  pointsControlsEl.classList.add("hidden");
+}
+
+map.on("click", (e) => {
+  if (!pointsMode) return;
+  L.DomEvent.stopPropagation(e);
+  addTracePoint(e.latlng);
+});
+
+function addTracePoint(latlng) {
+  const marker = L.circleMarker(latlng, {
+    radius: 5,
+    color: "#2979ff",
+    fillColor: "#82b1ff",
+    fillOpacity: 0.9,
+  }).addTo(map);
+  pointMarkers.push(marker);
+  currentPoints.push([latlng.lng, latlng.lat]);
+
+  tracePreviewLayer.setLatLngs(currentPoints.map(([lon, lat]) => [lat, lon]));
+  pointsControlsEl.classList.toggle("hidden", currentPoints.length === 0);
+}
+
+pointsConfirmBtn.addEventListener("click", async () => {
+  if (currentPoints.length < 3 || segmentationInFlight) {
+    if (currentPoints.length < 3) {
+      setStatus("Il faut au moins 3 points pour former un contour.", true);
+      setTimeout(() => setStatus(null), 2500);
+    }
+    return;
+  }
+
+  segmentationInFlight = true;
+  setStatus("Enregistrement du toit...");
+
+  try {
+    const resp = await fetch("/api/roof_manual", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ points: currentPoints }),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      setStatus(data.error || "Échec de l'enregistrement", true);
+      setTimeout(() => setStatus(null), 3000);
+      return;
+    }
+
+    addIaFeatures({ type: "FeatureCollection", features: [data] });
+    setStatus(`Toit enregistré : ${data.properties.area_m2.toLocaleString("fr-FR")} m²`);
+    setTimeout(() => setStatus(null), 3000);
+  } catch (err) {
+    setStatus("Erreur réseau pendant l'enregistrement", true);
+    setTimeout(() => setStatus(null), 3000);
+  } finally {
+    segmentationInFlight = false;
+    clearPointsSession();
+  }
+});
+
+pointsCancelBtn.addEventListener("click", clearPointsSession);
 
 loadCitiesInfo();

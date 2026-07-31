@@ -62,6 +62,9 @@ def _init_db():
                 """
             )
             cur.execute(
+                "ALTER TABLE ia_segments ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'ia-segmentation'"
+            )
+            cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_ia_segments_centroid "
                 "ON ia_segments (centroid_lat, centroid_lon)"
             )
@@ -75,8 +78,9 @@ def _polygon_centroid(coords):
     return lon, lat
 
 
-def _store_ia_segment(polygon, area_m2):
-    """Sauvegarde un toit détecté par IA (ou renvoie l'entrée existante si déjà stocké)."""
+def _store_ia_segment(polygon, area_m2, source="ia-segmentation"):
+    """Sauvegarde un toit (détecté par IA ou tracé manuellement), ou renvoie
+    l'entrée existante si déjà stocké au même endroit."""
     lon, lat = _polygon_centroid(polygon)
     pool = _get_db_pool()
     conn = pool.getconn()
@@ -84,7 +88,7 @@ def _store_ia_segment(polygon, area_m2):
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, polygon, area_m2 FROM ia_segments
+                SELECT id, polygon, area_m2, source FROM ia_segments
                 WHERE centroid_lon BETWEEN %s AND %s AND centroid_lat BETWEEN %s AND %s
                 LIMIT 1
                 """,
@@ -97,18 +101,18 @@ def _store_ia_segment(polygon, area_m2):
             )
             existing = cur.fetchone()
             if existing:
-                return {"id": existing[0], "polygon": existing[1], "area_m2": existing[2]}
+                return {"id": existing[0], "polygon": existing[1], "area_m2": existing[2], "source": existing[3]}
 
             cur.execute(
                 """
-                INSERT INTO ia_segments (polygon, area_m2, centroid_lon, centroid_lat)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO ia_segments (polygon, area_m2, centroid_lon, centroid_lat, source)
+                VALUES (%s, %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (json.dumps(polygon), area_m2, lon, lat),
+                (json.dumps(polygon), area_m2, lon, lat, source),
             )
             new_id = cur.fetchone()[0]
-            return {"id": new_id, "polygon": polygon, "area_m2": area_m2}
+            return {"id": new_id, "polygon": polygon, "area_m2": area_m2, "source": source}
     finally:
         pool.putconn(conn)
 
@@ -121,7 +125,7 @@ def _query_ia_segments(bbox):
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, polygon, area_m2 FROM ia_segments
+                SELECT id, polygon, area_m2, source FROM ia_segments
                 WHERE centroid_lat BETWEEN %s AND %s AND centroid_lon BETWEEN %s AND %s
                 """,
                 (south, north, west, east),
@@ -129,7 +133,7 @@ def _query_ia_segments(bbox):
             rows = cur.fetchall()
     finally:
         pool.putconn(conn)
-    return [{"id": r[0], "polygon": r[1], "area_m2": r[2]} for r in rows]
+    return [{"id": r[0], "polygon": r[1], "area_m2": r[2], "source": r[3]} for r in rows]
 
 
 def _delete_ia_segment(seg_id):
@@ -441,6 +445,41 @@ def api_segment():
     )
 
 
+@app.route("/api/roof_manual", methods=["POST"])
+def api_roof_manual():
+    """Toit tracé manuellement par l'utilisateur (clics formant les sommets du
+    contour), sans passer par le modèle IA. Indépendant du clic simple, de la
+    zone et de la persistance des détections IA."""
+    body = request.get_json(silent=True) or {}
+    raw_points = body.get("points")
+    if not raw_points or not isinstance(raw_points, list) or len(raw_points) < 3:
+        return jsonify({"error": "Il faut au moins 3 points pour former un contour"}), 400
+
+    try:
+        polygon = [[float(p[0]), float(p[1])] for p in raw_points]
+    except (KeyError, ValueError, TypeError, IndexError):
+        return jsonify({"error": "Points invalides"}), 400
+
+    ref_lon, ref_lat = polygon[0]
+    if not _bbox_within_morocco((ref_lat, ref_lon, ref_lat, ref_lon)):
+        return jsonify({"error": "Point hors du Maroc"}), 400
+
+    area = _polygon_area_m2(polygon)
+    if area <= 0:
+        return jsonify({"error": "Contour invalide"}), 400
+
+    stored = _store_ia_segment(polygon, round(area, 1), source="manual-trace")
+
+    return jsonify(
+        {
+            "type": "Feature",
+            "id": stored["id"],
+            "geometry": {"type": "Polygon", "coordinates": [stored["polygon"] + [stored["polygon"][0]]]},
+            "properties": {"area_m2": stored["area_m2"], "source": stored["source"]},
+        }
+    )
+
+
 @app.route("/api/segment_zone")
 def api_segment_zone():
     try:
@@ -494,7 +533,7 @@ def api_ia_segments():
             "type": "Feature",
             "id": r["id"],
             "geometry": {"type": "Polygon", "coordinates": [r["polygon"] + [r["polygon"][0]]]},
-            "properties": {"area_m2": r["area_m2"], "source": "ia-segmentation"},
+            "properties": {"area_m2": r["area_m2"], "source": r["source"]},
         }
         for r in rows
     ]

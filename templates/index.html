@@ -17,6 +17,7 @@
     <h1>🇲🇦 Carte du Maroc — Surface des bâtiments</h1>
     <select id="city-select" class="city-select"></select>
     <button id="zone-select-btn" class="zone-btn" type="button">🔲 Sélectionner une zone (IA)</button>
+    <button id="points-select-btn" class="zone-btn" type="button">✏️ Tracer un toit</button>
     <p class="hint" id="hint">Survolez un bâtiment (OSM) pour voir sa surface, ou cliquez n'importe où pour une détection IA par imagerie satellite.</p>
   </header>
 
@@ -24,6 +25,10 @@
 
   <div id="tooltip" class="tooltip hidden"></div>
   <div id="status" class="status hidden"></div>
+  <div id="points-controls" class="points-controls hidden">
+    <button id="points-confirm-btn" type="button">✓ Valider</button>
+    <button id="points-cancel-btn" type="button">✗ Annuler</button>
+  </div>
 
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
