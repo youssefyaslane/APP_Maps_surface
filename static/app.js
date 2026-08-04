@@ -14,6 +14,12 @@ const map = L.map("map", {
   maxBoundsViscosity: 0.8,
 });
 
+// Pane dédié pour les marqueurs d'entreprises : au-dessus des polygones
+// (bâtiments OSM, détections IA, tracés manuels) pour qu'ils restent
+// toujours accessibles au survol/clic même en cas de superposition.
+map.createPane("companiesPane");
+map.getPane("companiesPane").style.zIndex = 650;
+
 const streetLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution:
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -80,6 +86,7 @@ const segmentationLayer = L.geoJSON(null, {
 const companiesLayer = L.geoJSON(null, {
   pointToLayer: (feature, latlng) =>
     L.circleMarker(latlng, {
+      pane: "companiesPane",
       radius: 6,
       color: "#e65100",
       weight: 2,
@@ -208,13 +215,29 @@ const tooltipEl = document.getElementById("tooltip");
 const statusEl = document.getElementById("status");
 const citySelectEl = document.getElementById("city-select");
 
+const SOLAR_PANEL_AREA_M2 = 1.7; // 1.0m x 1.7m
+const SOLAR_PANEL_POWER_W = 400;
+const SOLAR_USABLE_ROOF_FRACTION = 0.7;
+
+function estimateSolarPanels(area_m2) {
+  if (!area_m2 || area_m2 <= 0) return null;
+  const nPanels = Math.floor((area_m2 * SOLAR_USABLE_ROOF_FRACTION) / SOLAR_PANEL_AREA_M2);
+  const capacityKWc = (nPanels * SOLAR_PANEL_POWER_W) / 1000;
+  return { nPanels, capacityKWc };
+}
+
 function showTooltip(e, props) {
   const area = props.area_m2 ? `${props.area_m2.toLocaleString("fr-FR")} m²` : "Surface inconnue";
   const levels = props.levels ? `<div>Étages: ${props.levels}</div>` : "";
+  const solar = estimateSolarPanels(props.area_m2);
+  const solarLine = solar
+    ? `<div class="solar">☀️ ~${solar.nPanels} panneau(x) (${solar.capacityKWc.toLocaleString("fr-FR")} kWc)</div>`
+    : "";
   tooltipEl.innerHTML = `
     <div><strong>${escapeHtml(props.name || "Bâtiment")}</strong></div>
     <div class="surface">${area}</div>
     ${levels}
+    ${solarLine}
   `;
   tooltipEl.classList.remove("hidden");
   moveTooltip(e);
