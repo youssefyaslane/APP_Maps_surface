@@ -5,3 +5,4 @@ tile_cache.json
 server.log
 .claude/
 mobile_sam.pt
+Data_clients/

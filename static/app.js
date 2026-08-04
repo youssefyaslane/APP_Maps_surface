@@ -33,10 +33,6 @@ const satelliteLayer = L.tileLayer(
 
 streetLayer.addTo(map);
 
-L.control
-  .layers({ "Plan": streetLayer, "Satellite": satelliteLayer })
-  .addTo(map);
-
 const buildingsLayer = L.geoJSON(null, {
   style: () => ({
     color: "#2e7d32",
@@ -80,6 +76,81 @@ const segmentationLayer = L.geoJSON(null, {
     });
   },
 }).addTo(map);
+
+const companiesLayer = L.geoJSON(null, {
+  pointToLayer: (feature, latlng) =>
+    L.circleMarker(latlng, {
+      radius: 6,
+      color: "#e65100",
+      weight: 2,
+      fillColor: "#ffa726",
+      fillOpacity: 0.9,
+    }),
+  onEachFeature: (feature, layer) => {
+    layer.on({
+      mouseover: (e) => {
+        e.target.setStyle({ radius: 8, weight: 3 });
+        showCompanyTooltip(e, feature.properties);
+      },
+      mousemove: (e) => moveTooltip(e),
+      mouseout: (e) => {
+        e.target.setStyle({ radius: 6, weight: 2 });
+        hideTooltip();
+      },
+    });
+  },
+}).addTo(map);
+
+L.control
+  .layers(
+    { "Plan": streetLayer, "Satellite": satelliteLayer },
+    { "Entreprises": companiesLayer }
+  )
+  .addTo(map);
+
+const loadedCompanyIds = new Set();
+
+async function loadCompanies() {
+  const bounds = map.getBounds();
+  const params = new URLSearchParams({
+    south: bounds.getSouth(),
+    west: bounds.getWest(),
+    north: bounds.getNorth(),
+    east: bounds.getEast(),
+  });
+
+  try {
+    const resp = await fetch(`/api/companies?${params.toString()}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const newFeatures = data.features.filter((f) => {
+      if (loadedCompanyIds.has(f.id)) return false;
+      loadedCompanyIds.add(f.id);
+      return true;
+    });
+    if (newFeatures.length) {
+      companiesLayer.addData({ type: "FeatureCollection", features: newFeatures });
+    }
+  } catch (err) {
+    // rechargement silencieux, non bloquant
+  }
+}
+
+function showCompanyTooltip(e, props) {
+  const category = props.category ? `<div>${escapeHtml(props.category)}</div>` : "";
+  const address = props.address ? `<div>${escapeHtml(props.address)}</div>` : "";
+  const phone = props.phone ? `<div>📞 ${escapeHtml(props.phone)}</div>` : "";
+  const rating = props.rating ? `<div>⭐ ${props.rating}</div>` : "";
+  tooltipEl.innerHTML = `
+    <div><strong>${escapeHtml(props.name || "Entreprise")}</strong></div>
+    ${category}
+    ${address}
+    ${phone}
+    ${rating}
+  `;
+  tooltipEl.classList.remove("hidden");
+  moveTooltip(e);
+}
 
 const loadedIaIds = new Set();
 
@@ -183,6 +254,7 @@ function scheduleLoadBuildings() {
   debounceTimer = setTimeout(() => {
     loadBuildings();
     loadIaSegments();
+    loadCompanies();
   }, 400);
 }
 
@@ -516,3 +588,4 @@ pointsConfirmBtn.addEventListener("click", async () => {
 pointsCancelBtn.addEventListener("click", clearPointsSession);
 
 loadCitiesInfo();
+loadCompanies();

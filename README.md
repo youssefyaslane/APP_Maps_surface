@@ -12,6 +12,7 @@ Application Flask affichant une carte interactive du Maroc : au survol d'un bât
 - **Détection IA par zone** : bouton « 🔲 Sélectionner une zone (IA) » → glisser un rectangle sur la carte pour segmenter automatiquement tous les toits visibles dans la zone (sans avoir à cliquer bâtiment par bâtiment)
 - **Tracé manuel d'un toit** : bouton « ✏️ Tracer un toit » → placer soi-même les sommets du contour au clic (sans IA), aperçu en direct, puis valider pour calculer la surface et l'enregistrer (affiché en bleu pointillé)
 - **Persistance en base (PostgreSQL)** : tous les toits détectés par IA ou tracés manuellement sont sauvegardés, rechargés automatiquement sur la carte au fil de la navigation (survit aux rechargements de page et redémarrages), et supprimables d'un clic (avec confirmation)
+- **Entreprises** : import en masse depuis un export scraper Google Maps (`.xlsx`), affichées en marqueurs orange sur toute la carte (indépendamment du niveau de zoom) ; survol → nom, catégorie, adresse, téléphone et note ; couche activable/désactivable via le contrôle de calques
 - Cache par tuile (mémoire + disque) et récupération parallélisée pour des temps de réponse rapides
 - Préchargement automatique des grandes villes et du modèle IA au démarrage du serveur
 
@@ -49,6 +50,23 @@ Puis ouvrir [http://127.0.0.1:5000](http://127.0.0.1:5000) dans un navigateur.
 - Bouton **🔲 Sélectionner une zone (IA)** puis glisser un rectangle pour détecter automatiquement tous les toits de la zone (peut prendre de 30s à plusieurs minutes selon la taille, calcul CPU).
 - Bouton **✏️ Tracer un toit** puis cliquer les sommets du contour, **✓ Valider** pour enregistrer ou **✗ Annuler** pour effacer.
 - Cliquer sur un contour déjà détecté/tracé (rouge ou bleu) pour le supprimer (confirmation demandée).
+- Les entreprises importées (marqueurs orange) sont visibles/masquables via le contrôle de calques en haut à droite ; survolez un marqueur pour voir ses coordonnées de contact.
+
+### Importer des entreprises
+
+Placez un export scraper Google Maps (`.xlsx`, colonnes `title`, `latitude`, `longitude`, `category`, `address`, `city`, `phone`, `email`, `website`, `rating`, `placeId`, ...) dans le dossier `Data_clients/`, puis lancez :
+
+```bash
+python import_companies.py
+```
+
+Le script détecte automatiquement le premier `.xlsx` trouvé dans `Data_clients/` (ou passez un chemin explicite : `python import_companies.py chemin/vers/fichier.xlsx`). L'import est idempotent : relancer le script met à jour les entreprises déjà importées (dédoublonnage par `placeId`) plutôt que de créer des doublons.
+
+Avec Docker :
+
+```bash
+docker compose exec web python import_companies.py
+```
 
 ## Lancer avec Docker
 
@@ -73,8 +91,9 @@ docker compose exec db psql -U maps -d maps
 ```
 app.py                  Serveur Flask + logique Overpass/cache/calcul de surface + persistance PostgreSQL
 segmentation.py         Segmentation IA des bâtiments (extraction imagerie satellite + MobileSAM)
+import_companies.py     Import en masse des entreprises depuis un export .xlsx vers PostgreSQL
 templates/index.html    Page principale (carte Leaflet)
-static/app.js           Logique frontend (chargement des bâtiments, tooltip, clic/zone/tracé IA)
+static/app.js           Logique frontend (chargement des bâtiments, tooltip, clic/zone/tracé IA, entreprises)
 static/style.css        Styles
 requirements.txt        Dépendances Python (hors torch, installé séparément)
 Dockerfile               Image de l'application
@@ -91,6 +110,7 @@ docker-compose.yml      Orchestration (web + PostgreSQL) + volumes persistants
 - `POST /api/roof_manual` — enregistre un toit tracé manuellement (`{"points": [[lon, lat], ...]}`, ≥ 3 points), calcule la surface et persiste en base
 - `GET /api/ia_segments?south=&west=&north=&east=` — recharge les toits déjà détectés/tracés dans la zone visible (GeoJSON)
 - `DELETE /api/ia_segments/<id>` — supprime un toit détecté/tracé
+- `GET /api/companies?south=&west=&north=&east=` — entreprises importées dans la zone visible (GeoJSON de points), alimenté par `import_companies.py`
 
 Les bâtiments OSM sont récupérés depuis Overpass, découpés en tuiles de grille (`TILE_SIZE_DEG`) pour permettre un cache fin et des requêtes parallèles. La surface de chaque bâtiment (OSM, détecté par IA, ou tracé manuellement) est calculée par projection équirectangulaire locale puis formule du lacet (shoelace).
 

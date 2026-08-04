@@ -68,6 +68,28 @@ def _init_db():
                 "CREATE INDEX IF NOT EXISTS idx_ia_segments_centroid "
                 "ON ia_segments (centroid_lat, centroid_lon)"
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS companies (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    category TEXT,
+                    address TEXT,
+                    city TEXT,
+                    phone TEXT,
+                    email TEXT,
+                    website TEXT,
+                    rating DOUBLE PRECISION,
+                    lon DOUBLE PRECISION NOT NULL,
+                    lat DOUBLE PRECISION NOT NULL,
+                    place_id TEXT UNIQUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_companies_coords ON companies (lat, lon)"
+            )
     finally:
         pool.putconn(conn)
 
@@ -146,6 +168,53 @@ def _delete_ia_segment(seg_id):
     finally:
         pool.putconn(conn)
     return deleted
+
+
+def _query_companies(bbox):
+    south, west, north, east = bbox
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, name, category, address, city, phone, email, website, rating, lon, lat
+                FROM companies
+                WHERE lat BETWEEN %s AND %s AND lon BETWEEN %s AND %s
+                """,
+                (south, north, west, east),
+            )
+            rows = cur.fetchall()
+    finally:
+        pool.putconn(conn)
+    return [
+        {
+            "id": r[0],
+            "name": r[1],
+            "category": r[2],
+            "address": r[3],
+            "city": r[4],
+            "phone": r[5],
+            "email": r[6],
+            "website": r[7],
+            "rating": r[8],
+            "lon": r[9],
+            "lat": r[10],
+        }
+        for r in rows
+    ]
+
+
+def _count_companies():
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM companies")
+            return cur.fetchone()[0]
+    finally:
+        pool.putconn(conn)
+
 
 # Miroirs Overpass accessibles depuis ce réseau (certains miroirs comme
 # overpass-api.de/overpass.kumi.systems sont bloqués par le pare-feu local).
@@ -545,6 +614,38 @@ def api_delete_ia_segment(seg_id):
     if not _delete_ia_segment(seg_id):
         return jsonify({"error": "Segmentation introuvable"}), 404
     return jsonify({"ok": True})
+
+
+@app.route("/api/companies")
+def api_companies():
+    try:
+        south = float(request.args["south"])
+        west = float(request.args["west"])
+        north = float(request.args["north"])
+        east = float(request.args["east"])
+    except (KeyError, ValueError):
+        return jsonify({"error": "Paramètres bbox invalides (south, west, north, east requis)"}), 400
+
+    rows = _query_companies((south, west, north, east))
+    features = [
+        {
+            "type": "Feature",
+            "id": r["id"],
+            "geometry": {"type": "Point", "coordinates": [r["lon"], r["lat"]]},
+            "properties": {
+                "name": r["name"],
+                "category": r["category"],
+                "address": r["address"],
+                "city": r["city"],
+                "phone": r["phone"],
+                "email": r["email"],
+                "website": r["website"],
+                "rating": r["rating"],
+            },
+        }
+        for r in rows
+    ]
+    return jsonify({"type": "FeatureCollection", "features": features})
 
 
 def _city_viewport_bbox(center, half_span_deg=0.012):
