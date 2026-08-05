@@ -417,6 +417,34 @@ def api_cities():
     )
 
 
+@app.route("/api/geocode")
+def api_geocode():
+    query = request.args.get("q", "").strip()
+    if not query:
+        return jsonify({"error": "Paramètre q requis"}), 400
+
+    headers = {"User-Agent": "maroc-buildings-map/1.0 (Flask demo app)"}
+    try:
+        resp = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params={"format": "json", "q": query, "countrycodes": "ma", "limit": 1},
+            headers=headers,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        results = resp.json()
+    except requests.RequestException as exc:
+        return jsonify({"error": f"Échec de la recherche: {exc}"}), 502
+
+    if not results:
+        return jsonify({"error": "Aucun lieu trouvé"}), 404
+
+    result = results[0]
+    return jsonify(
+        {"lat": float(result["lat"]), "lon": float(result["lon"]), "display_name": result["display_name"]}
+    )
+
+
 @app.route("/api/buildings")
 def api_buildings():
     try:

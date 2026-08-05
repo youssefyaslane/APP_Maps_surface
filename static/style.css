@@ -33,6 +33,35 @@ html, body {
   border: 1px solid #ccc;
 }
 
+.search-form {
+  display: inline-flex;
+  margin-top: 8px;
+  margin-left: 8px;
+  gap: 4px;
+}
+
+.search-input {
+  width: 260px;
+  max-width: 60vw;
+  padding: 5px 10px;
+  font-size: 14px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+}
+
+.search-btn {
+  padding: 5px 10px;
+  font-size: 14px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+}
+
+.search-btn:hover {
+  background: #f0f0f0;
+}
+
 .zone-btn {
   margin-top: 8px;
   margin-left: 8px;
@@ -147,4 +176,117 @@ html, body {
 
 .status.error {
   background: rgba(160, 30, 30, 0.9);
+}
+
+.company-panel {
+  position: absolute;
+  z-index: 1400;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  max-width: 90vw;
+  background: #fff;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.25);
+  padding: 28px 26px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  animation: company-panel-slide-in 0.2s ease-out;
+}
+
+@keyframes company-panel-slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.company-panel.hidden {
+  display: none;
+}
+
+.company-panel-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: #f0f0f0;
+  font-size: 16px;
+  cursor: pointer;
+  color: #555;
+  line-height: 1;
+}
+
+.company-panel-close:hover {
+  background: #e0e0e0;
+  color: #000;
+}
+
+#company-panel-content h2 {
+  margin: 0 40px 4px 0;
+  font-size: 24px;
+  line-height: 1.25;
+  color: #1f5130;
+}
+
+#company-panel-content .field-category {
+  display: inline-block;
+  margin: 4px 0 20px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: #e8f5e9;
+  color: #2e7d32;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#company-panel-content .field {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 0;
+  border-bottom: 1px solid #eee;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+#company-panel-content .field:last-child {
+  border-bottom: none;
+}
+
+#company-panel-content .field-icon {
+  font-size: 18px;
+  flex: none;
+  width: 22px;
+  text-align: center;
+}
+
+#company-panel-content .field-body {
+  min-width: 0;
+}
+
+#company-panel-content .field-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #999;
+  margin-bottom: 3px;
+}
+
+#company-panel-content a {
+  color: #2979ff;
+  word-break: break-word;
+  text-decoration: none;
+}
+
+#company-panel-content a:hover {
+  text-decoration: underline;
 }

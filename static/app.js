@@ -104,6 +104,11 @@ const companiesLayer = L.geoJSON(null, {
         e.target.setStyle({ radius: 6, weight: 2 });
         hideTooltip();
       },
+      click: (e) => {
+        L.DomEvent.stopPropagation(e);
+        hideTooltip();
+        openCompanyPanel(feature.properties);
+      },
     });
   },
 }).addTo(map);
@@ -158,6 +163,46 @@ function showCompanyTooltip(e, props) {
   tooltipEl.classList.remove("hidden");
   moveTooltip(e);
 }
+
+const companyPanelEl = document.getElementById("company-panel");
+const companyPanelContentEl = document.getElementById("company-panel-content");
+const companyPanelCloseEl = document.getElementById("company-panel-close");
+
+function field(icon, label, value, isLink = false) {
+  if (!value) return "";
+  const content = isLink
+    ? `<a href="${escapeHtml(value)}" target="_blank" rel="noopener">${escapeHtml(value)}</a>`
+    : escapeHtml(String(value));
+  return `
+    <div class="field">
+      <span class="field-icon">${icon}</span>
+      <span class="field-body"><span class="field-label">${label}</span>${content}</span>
+    </div>
+  `;
+}
+
+function openCompanyPanel(props) {
+  const categoryBadge = props.category
+    ? `<span class="field-category">${escapeHtml(props.category)}</span>`
+    : "";
+  companyPanelContentEl.innerHTML = `
+    <h2>${escapeHtml(props.name || "Entreprise")}</h2>
+    ${categoryBadge}
+    ${field("📍", "Adresse", props.address)}
+    ${field("🏙️", "Ville", props.city)}
+    ${field("📞", "Téléphone", props.phone)}
+    ${field("✉️", "Email", props.email)}
+    ${field("🌐", "Site web", props.website, true)}
+    ${field("⭐", "Note", props.rating)}
+  `;
+  companyPanelEl.classList.remove("hidden");
+}
+
+function closeCompanyPanel() {
+  companyPanelEl.classList.add("hidden");
+}
+
+companyPanelCloseEl.addEventListener("click", closeCompanyPanel);
 
 const loadedIaIds = new Set();
 
@@ -350,6 +395,47 @@ citySelectEl.addEventListener("change", () => {
   const city = citiesInfo[citySelectEl.value];
   if (city) {
     map.setView(city.center, city.zoom);
+  }
+});
+
+const SEARCH_ZOOM = 17;
+const COORDS_RE = /^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/;
+
+const searchFormEl = document.getElementById("search-form");
+const searchInputEl = document.getElementById("search-input");
+
+searchFormEl.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const query = searchInputEl.value.trim();
+  if (!query) return;
+
+  const coordsMatch = query.match(COORDS_RE);
+  if (coordsMatch) {
+    const lat = parseFloat(coordsMatch[1]);
+    const lon = parseFloat(coordsMatch[2]);
+    map.setView([lat, lon], SEARCH_ZOOM);
+    setStatus(`Déplacé vers ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+    setTimeout(() => setStatus(null), 2500);
+    return;
+  }
+
+  setStatus("Recherche du lieu...");
+  try {
+    const resp = await fetch(`/api/geocode?q=${encodeURIComponent(query)}`);
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      setStatus(data.error || "Lieu introuvable", true);
+      setTimeout(() => setStatus(null), 3000);
+      return;
+    }
+
+    map.setView([data.lat, data.lon], SEARCH_ZOOM);
+    setStatus(`Trouvé : ${data.display_name}`);
+    setTimeout(() => setStatus(null), 3000);
+  } catch (err) {
+    setStatus("Erreur réseau pendant la recherche", true);
+    setTimeout(() => setStatus(null), 2500);
   }
 });
 

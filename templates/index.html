@@ -16,6 +16,16 @@
   <header class="topbar">
     <h1>🇲🇦 Carte du Maroc — Surface des bâtiments</h1>
     <select id="city-select" class="city-select"></select>
+    <form id="search-form" class="search-form">
+      <input
+        id="search-input"
+        class="search-input"
+        type="text"
+        placeholder="Coordonnées (lat, lon) ou lieu (ville, quartier...)"
+        autocomplete="off"
+      />
+      <button id="search-btn" class="search-btn" type="submit">🔍</button>
+    </form>
     <button id="zone-select-btn" class="zone-btn" type="button">🔲 Sélectionner une zone (IA)</button>
     <button id="points-select-btn" class="zone-btn" type="button">✏️ Tracer un toit</button>
     <p class="hint" id="hint">Survolez un bâtiment (OSM) pour voir sa surface, ou cliquez n'importe où pour une détection IA par imagerie satellite.</p>
@@ -29,6 +39,11 @@
     <button id="points-confirm-btn" type="button">✓ Valider</button>
     <button id="points-cancel-btn" type="button">✗ Annuler</button>
   </div>
+
+  <aside id="company-panel" class="company-panel hidden">
+    <button id="company-panel-close" class="company-panel-close" type="button" aria-label="Fermer">✕</button>
+    <div id="company-panel-content"></div>
+  </aside>
 
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
