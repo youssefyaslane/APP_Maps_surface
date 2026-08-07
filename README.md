@@ -6,13 +6,16 @@ Application Flask affichant une carte interactive du Maroc : au survol d'un bât
 
 - Carte du Maroc (Leaflet), avec bascule entre vue **Plan** (tuiles OpenStreetMap) et vue **Satellite** (imagerie Esri), zoom jusqu'au niveau 22
 - Sélecteur de villes (Casablanca, Rabat, Marrakech, Fès, Tanger, Agadir) pour centrer rapidement la carte
-- Récupération des bâtiments réels via l'API [Overpass](https://overpass-api.de/) (OSM), avec surface au sol calculée géométriquement
-- Survol d'un bâtiment (contour OSM, en vert) → nom, type, nombre d'étages et surface (m²)
+- **Barre de recherche** : coordonnées (`lat, lon`) pour un déplacement direct, ou nom de lieu (géocodé via Nominatim/OSM, restreint au Maroc)
+- Récupération des bâtiments réels via l'API [Overpass](https://overpass-api.de/) (OSM), avec surface au sol calculée géométriquement — couche activable/désactivable via le contrôle de calques
+- Survol d'un bâtiment (contour OSM, en vert) → nom, type, nombre d'étages, surface (m²) et estimation du nombre de panneaux solaires installables
 - **Détection IA au clic** : clic n'importe où sur la carte → segmentation du bâtiment visible sur l'imagerie satellite via [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) et calcul de sa surface, même hors couverture OSM (contour affiché en rouge pointillé)
 - **Détection IA par zone** : bouton « 🔲 Sélectionner une zone (IA) » → glisser un rectangle sur la carte pour segmenter automatiquement tous les toits visibles dans la zone (sans avoir à cliquer bâtiment par bâtiment)
 - **Tracé manuel d'un toit** : bouton « ✏️ Tracer un toit » → placer soi-même les sommets du contour au clic (sans IA), aperçu en direct, puis valider pour calculer la surface et l'enregistrer (affiché en bleu pointillé)
+- **Bâtiments IA Microsoft** : couche violette optionnelle basée sur le dataset ouvert [Global ML Building Footprints](https://github.com/microsoft/GlobalMLBuildingFootprints) (détection par IA sur imagerie satellite, complète les zones peu/pas couvertes par OSM)
+- **Estimation panneaux solaires** : pour chaque toit (OSM, IA, tracé manuel ou Microsoft), estimation du nombre de panneaux solaires installables et de la puissance correspondante (kWc), affichée au survol
 - **Persistance en base (PostgreSQL)** : tous les toits détectés par IA ou tracés manuellement sont sauvegardés, rechargés automatiquement sur la carte au fil de la navigation (survit aux rechargements de page et redémarrages), et supprimables d'un clic (avec confirmation)
-- **Entreprises** : import en masse depuis un export scraper Google Maps (`.xlsx`), affichées en marqueurs orange sur toute la carte (indépendamment du niveau de zoom) ; survol → nom, catégorie, adresse, téléphone et note ; couche activable/désactivable via le contrôle de calques
+- **Entreprises** : import en masse depuis un ou plusieurs exports scraper Google Maps (`.xlsx`, plusieurs formats de colonnes supportés), affichées en marqueurs orange sur toute la carte (indépendamment du niveau de zoom) ; survol → aperçu rapide ; clic → panneau latéral avec toutes les coordonnées (adresse, téléphone, email, site web, note) ; couche activable/désactivable via le contrôle de calques
 - Cache par tuile (mémoire + disque) et récupération parallélisée pour des temps de réponse rapides
 - Préchargement automatique des grandes villes et du modèle IA au démarrage du serveur
 
@@ -44,29 +47,53 @@ python -m flask run
 
 Puis ouvrir [http://127.0.0.1:5000](http://127.0.0.1:5000) dans un navigateur.
 
-- Choisissez une ville dans le menu déroulant ou zoomez/déplacez la carte (niveau de zoom ≥ 16) pour charger les bâtiments OSM d'une zone, puis survolez un bâtiment pour voir sa surface.
-- Basculez en vue **Satellite** via le contrôle de calques en haut à droite de la carte.
+- Choisissez une ville dans le menu déroulant, utilisez la barre de recherche (coordonnées ou nom de lieu), ou zoomez/déplacez la carte (niveau de zoom ≥ 16) pour charger les bâtiments OSM d'une zone, puis survolez un bâtiment pour voir sa surface et son potentiel solaire.
+- Basculez en vue **Satellite**, et activez/désactivez les couches (Bâtiments OpenStreetMap, Entreprises, Bâtiments IA Microsoft) via le contrôle de calques en haut à droite de la carte.
 - Cliquez n'importe où sur la carte pour lancer une détection IA du bâtiment sous le curseur (quelques secondes de calcul, plus rapide une fois le modèle préchargé).
-- Bouton **🔲 Sélectionner une zone (IA)** puis glisser un rectangle pour détecter automatiquement tous les toits de la zone (peut prendre de 30s à plusieurs minutes selon la taille, calcul CPU).
+- Bouton **🔲 Sélectionner une zone (IA)** puis glisser un rectangle pour détecter automatiquement tous les toits de la zone (peut prendre de 30s à plusieurs minutes selon la taille, calcul CPU, sans limite de taille).
 - Bouton **✏️ Tracer un toit** puis cliquer les sommets du contour, **✓ Valider** pour enregistrer ou **✗ Annuler** pour effacer.
 - Cliquer sur un contour déjà détecté/tracé (rouge ou bleu) pour le supprimer (confirmation demandée).
-- Les entreprises importées (marqueurs orange) sont visibles/masquables via le contrôle de calques en haut à droite ; survolez un marqueur pour voir ses coordonnées de contact.
+- Les entreprises importées (marqueurs orange) sont visibles/masquables via le contrôle de calques ; survolez un marqueur pour un aperçu rapide, ou cliquez dessus pour ouvrir le panneau détaillé (adresse, téléphone, email, site web, note).
 
 ### Importer des entreprises
 
-Placez un export scraper Google Maps (`.xlsx`, colonnes `title`, `latitude`, `longitude`, `category`, `address`, `city`, `phone`, `email`, `website`, `rating`, `placeId`, ...) dans le dossier `Data_clients/`, puis lancez :
+Placez un ou plusieurs exports scraper Google Maps (`.xlsx`) dans le dossier `Data_clients/`. Deux formats de colonnes sont reconnus automatiquement :
+- `title`, `latitude`/`longitude` (ou `location/lat`/`location/lng`), `category`/`categories/0`, `address`, `city`, `phone`/`phones/0`, `email`/`emails/0`, `website`, `rating`/`totalScore`, `placeId`
+
+Puis lancez :
 
 ```bash
 python import_companies.py
 ```
 
-Le script détecte automatiquement le premier `.xlsx` trouvé dans `Data_clients/` (ou passez un chemin explicite : `python import_companies.py chemin/vers/fichier.xlsx`). L'import est idempotent : relancer le script met à jour les entreprises déjà importées (dédoublonnage par `placeId`) plutôt que de créer des doublons.
+Sans argument, le script importe **tous** les `.xlsx` trouvés dans `Data_clients/` (ou passez un ou plusieurs chemins explicites : `python import_companies.py fichier1.xlsx fichier2.xlsx`). L'import est idempotent : relancer le script met à jour les entreprises déjà importées (dédoublonnage par `placeId`, y compris entre plusieurs fichiers) plutôt que de créer des doublons.
 
 Avec Docker :
 
 ```bash
 docker compose exec web python import_companies.py
 ```
+
+### Importer des bâtiments Microsoft (Global ML Building Footprints)
+
+Pour compléter les zones peu couvertes par OSM avec des empreintes de bâtiments détectées par IA :
+
+1. Téléchargez la [liste des tuiles](https://minedbuildings.z5.web.core.windows.net/global-buildings/dataset-links.csv) et repérez le(s) `quadkey` couvrant votre zone (`RegionName=Morocco`).
+2. Téléchargez et décompressez la tuile correspondante (fichier `.geojsonl`, une Feature GeoJSON par ligne).
+3. Importez-la :
+
+```bash
+python import_ms_buildings.py chemin/vers/fichier.geojsonl
+```
+
+Avec Docker (copier le fichier dans le conteneur d'abord) :
+
+```bash
+docker compose cp fichier.geojsonl web:/tmp/fichier.geojsonl
+docker compose exec web python import_ms_buildings.py /tmp/fichier.geojsonl
+```
+
+Ce dataset ne contient ni nom ni adresse — uniquement la géométrie du toit (aucune notion sémantique de « bâtiment », c'est un modèle de vision par ordinateur).
 
 ## Lancer avec Docker
 
@@ -91,9 +118,10 @@ docker compose exec db psql -U maps -d maps
 ```
 app.py                  Serveur Flask + logique Overpass/cache/calcul de surface + persistance PostgreSQL
 segmentation.py         Segmentation IA des bâtiments (extraction imagerie satellite + MobileSAM)
-import_companies.py     Import en masse des entreprises depuis un export .xlsx vers PostgreSQL
+import_companies.py     Import en masse des entreprises depuis un/des export(s) .xlsx vers PostgreSQL
+import_ms_buildings.py  Import des empreintes de bâtiments Microsoft (.geojsonl) vers PostgreSQL
 templates/index.html    Page principale (carte Leaflet)
-static/app.js           Logique frontend (chargement des bâtiments, tooltip, clic/zone/tracé IA, entreprises)
+static/app.js           Logique frontend (couches, tooltip, recherche, clic/zone/tracé IA, entreprises)
 static/style.css        Styles
 requirements.txt        Dépendances Python (hors torch, installé séparément)
 Dockerfile               Image de l'application
@@ -111,6 +139,8 @@ docker-compose.yml      Orchestration (web + PostgreSQL) + volumes persistants
 - `GET /api/ia_segments?south=&west=&north=&east=` — recharge les toits déjà détectés/tracés dans la zone visible (GeoJSON)
 - `DELETE /api/ia_segments/<id>` — supprime un toit détecté/tracé
 - `GET /api/companies?south=&west=&north=&east=` — entreprises importées dans la zone visible (GeoJSON de points), alimenté par `import_companies.py`
+- `GET /api/ms_buildings?south=&west=&north=&east=` — empreintes de bâtiments Microsoft dans la zone visible (GeoJSON, limité à 3000 résultats), alimenté par `import_ms_buildings.py`
+- `GET /api/geocode?q=` — géocode un nom de lieu via Nominatim/OSM (restreint au Maroc), utilisé par la barre de recherche
 
 Les bâtiments OSM sont récupérés depuis Overpass, découpés en tuiles de grille (`TILE_SIZE_DEG`) pour permettre un cache fin et des requêtes parallèles. La surface de chaque bâtiment (OSM, détecté par IA, ou tracé manuellement) est calculée par projection équirectangulaire locale puis formule du lacet (shoelace).
 
@@ -128,3 +158,4 @@ Au clic, une grille de tuiles satellite Esri (haute résolution, zoom 19) est as
 - Les données OSM proviennent de contributions collaboratives : la couverture et la précision varient selon les zones (meilleure en centre-ville, plus partielle en périphérie/zones rurales) — la détection IA vise à combler ces zones non cartographiées.
 - Le premier clic pour la détection IA après démarrage du serveur peut être plus lent (téléchargement du modèle + chargement en mémoire) ; les clics suivants sont plus rapides.
 - La sélection de zone n'a pas de limite de taille : une très grande zone peut prendre plusieurs minutes à analyser (calcul CPU).
+- L'estimation de panneaux solaires suppose des panneaux de 1.7 m² (1.0m × 1.7m), 400 W chacun, sur 70% de la surface du toit (le reste = accès/marges/obstacles) — hypothèses simplificatrices, ajustables dans `static/app.js` (constantes `SOLAR_PANEL_AREA_M2`, `SOLAR_PANEL_POWER_W`, `SOLAR_USABLE_ROOF_FRACTION`), sans tenir compte de l'orientation/inclinaison réelle du toit.

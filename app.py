@@ -90,6 +90,21 @@ def _init_db():
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_companies_coords ON companies (lat, lon)"
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ms_buildings (
+                    id SERIAL PRIMARY KEY,
+                    polygon JSONB NOT NULL,
+                    area_m2 DOUBLE PRECISION NOT NULL,
+                    centroid_lon DOUBLE PRECISION NOT NULL,
+                    centroid_lat DOUBLE PRECISION NOT NULL
+                )
+                """
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_ms_buildings_centroid "
+                "ON ms_buildings (centroid_lat, centroid_lon)"
+            )
     finally:
         pool.putconn(conn)
 
@@ -214,6 +229,29 @@ def _count_companies():
             return cur.fetchone()[0]
     finally:
         pool.putconn(conn)
+
+
+MS_BUILDINGS_QUERY_LIMIT = 3000
+
+
+def _query_ms_buildings(bbox):
+    south, west, north, east = bbox
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, polygon, area_m2 FROM ms_buildings
+                WHERE centroid_lat BETWEEN %s AND %s AND centroid_lon BETWEEN %s AND %s
+                LIMIT %s
+                """,
+                (south, north, west, east, MS_BUILDINGS_QUERY_LIMIT),
+            )
+            rows = cur.fetchall()
+    finally:
+        pool.putconn(conn)
+    return [{"id": r[0], "polygon": r[1], "area_m2": r[2]} for r in rows]
 
 
 # Miroirs Overpass accessibles depuis ce réseau (certains miroirs comme
@@ -670,6 +708,35 @@ def api_companies():
                 "website": r["website"],
                 "rating": r["rating"],
             },
+        }
+        for r in rows
+    ]
+    return jsonify({"type": "FeatureCollection", "features": features})
+
+
+@app.route("/api/ms_buildings")
+def api_ms_buildings():
+    """Bâtiments détectés par IA sur imagerie satellite, dataset ouvert
+    Microsoft Global ML Building Footprints (complète les zones peu/pas
+    couvertes par OSM)."""
+    try:
+        south = float(request.args["south"])
+        west = float(request.args["west"])
+        north = float(request.args["north"])
+        east = float(request.args["east"])
+    except (KeyError, ValueError):
+        return jsonify({"error": "Paramètres bbox invalides (south, west, north, east requis)"}), 400
+
+    if (north - south) * (east - west) > 0.05:
+        return jsonify({"error": "Zone trop grande, veuillez zoomer"}), 400
+
+    rows = _query_ms_buildings((south, west, north, east))
+    features = [
+        {
+            "type": "Feature",
+            "id": r["id"],
+            "geometry": {"type": "Polygon", "coordinates": [r["polygon"] + [r["polygon"][0]]]},
+            "properties": {"area_m2": r["area_m2"], "source": "ms-buildings"},
         }
         for r in rows
     ]

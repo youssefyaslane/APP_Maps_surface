@@ -61,6 +61,28 @@ const buildingsLayer = L.geoJSON(null, {
   },
 }).addTo(map);
 
+const msBuildingsLayer = L.geoJSON(null, {
+  style: () => ({
+    color: "#7b1fa2",
+    weight: 1,
+    fillColor: "#ce93d8",
+    fillOpacity: 0.4,
+  }),
+  onEachFeature: (feature, layer) => {
+    layer.on({
+      mouseover: (e) => {
+        e.target.setStyle({ fillOpacity: 0.75, weight: 2 });
+        showTooltip(e, { ...feature.properties, name: "Bâtiment détecté par IA (Microsoft)" });
+      },
+      mousemove: (e) => moveTooltip(e),
+      mouseout: (e) => {
+        msBuildingsLayer.resetStyle(e.target);
+        hideTooltip();
+      },
+    });
+  },
+});
+
 const segmentationLayer = L.geoJSON(null, {
   style: (feature) =>
     feature.properties.source === "manual-trace"
@@ -113,12 +135,48 @@ const companiesLayer = L.geoJSON(null, {
   },
 }).addTo(map);
 
+msBuildingsLayer.addTo(map);
+
 L.control
   .layers(
     { "Plan": streetLayer, "Satellite": satelliteLayer },
-    { "Entreprises": companiesLayer }
+    {
+      "Bâtiments OpenStreetMap": buildingsLayer,
+      "Entreprises": companiesLayer,
+      "Bâtiments IA (Microsoft)": msBuildingsLayer,
+    }
   )
   .addTo(map);
+
+const loadedMsBuildingIds = new Set();
+
+async function loadMsBuildings() {
+  if (map.getZoom() < MIN_ZOOM_FOR_BUILDINGS) return;
+
+  const bounds = map.getBounds();
+  const params = new URLSearchParams({
+    south: bounds.getSouth(),
+    west: bounds.getWest(),
+    north: bounds.getNorth(),
+    east: bounds.getEast(),
+  });
+
+  try {
+    const resp = await fetch(`/api/ms_buildings?${params.toString()}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const newFeatures = data.features.filter((f) => {
+      if (loadedMsBuildingIds.has(f.id)) return false;
+      loadedMsBuildingIds.add(f.id);
+      return true;
+    });
+    if (newFeatures.length) {
+      msBuildingsLayer.addData({ type: "FeatureCollection", features: newFeatures });
+    }
+  } catch (err) {
+    // rechargement silencieux, non bloquant
+  }
+}
 
 const loadedCompanyIds = new Set();
 
@@ -323,6 +381,7 @@ function scheduleLoadBuildings() {
     loadBuildings();
     loadIaSegments();
     loadCompanies();
+    loadMsBuildings();
   }, 400);
 }
 
