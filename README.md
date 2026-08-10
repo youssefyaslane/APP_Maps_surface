@@ -14,8 +14,9 @@ Application Flask affichant une carte interactive du Maroc : au survol d'un bât
 - **Tracé manuel d'un toit** : bouton « ✏️ Tracer un toit » → placer soi-même les sommets du contour au clic (sans IA), aperçu en direct, puis valider pour calculer la surface et l'enregistrer (affiché en bleu pointillé)
 - **Bâtiments IA Microsoft** : couche violette optionnelle basée sur le dataset ouvert [Global ML Building Footprints](https://github.com/microsoft/GlobalMLBuildingFootprints) (détection par IA sur imagerie satellite, complète les zones peu/pas couvertes par OSM)
 - **Estimation panneaux solaires** : pour chaque toit (OSM, IA, tracé manuel ou Microsoft), estimation du nombre de panneaux solaires installables et de la puissance correspondante (kWc), affichée au survol
-- **Persistance en base (PostgreSQL)** : tous les toits détectés par IA ou tracés manuellement sont sauvegardés, rechargés automatiquement sur la carte au fil de la navigation (survit aux rechargements de page et redémarrages), et supprimables d'un clic (avec confirmation)
+- **Persistance en base (PostgreSQL)** : tous les toits détectés par IA ou tracés manuellement sont sauvegardés, rechargés automatiquement sur la carte au fil de la navigation (survit aux rechargements de page et redémarrages), et supprimables d'un clic (avec confirmation) ; les couches « Bâtiments détectés par IA » (rouge) et « Toits tracés manuellement » (bleu) sont activables/désactivables séparément via le contrôle de calques
 - **Entreprises** : import en masse depuis un ou plusieurs exports scraper Google Maps (`.xlsx`, plusieurs formats de colonnes supportés), affichées en marqueurs orange sur toute la carte (indépendamment du niveau de zoom) ; survol → aperçu rapide ; clic → panneau latéral avec toutes les coordonnées (adresse, téléphone, email, site web, note) ; couche activable/désactivable via le contrôle de calques
+- **Liaison entreprise ↔ toit** : à l'ouverture du panneau détaillé d'une entreprise, recherche automatique du toit sous ses coordonnées (parmi les bâtiments Microsoft puis les toits détectés/tracés) et affichage de sa surface et de son potentiel solaire directement dans le panneau — utile pour qualifier un prospect sans quitter sa fiche
 - Cache par tuile (mémoire + disque) et récupération parallélisée pour des temps de réponse rapides
 - Préchargement automatique des grandes villes et du modèle IA au démarrage du serveur
 
@@ -140,6 +141,7 @@ docker-compose.yml      Orchestration (web + PostgreSQL) + volumes persistants
 - `DELETE /api/ia_segments/<id>` — supprime un toit détecté/tracé
 - `GET /api/companies?south=&west=&north=&east=` — entreprises importées dans la zone visible (GeoJSON de points), alimenté par `import_companies.py`
 - `GET /api/ms_buildings?south=&west=&north=&east=` — empreintes de bâtiments Microsoft dans la zone visible (GeoJSON, limité à 3000 résultats), alimenté par `import_ms_buildings.py`
+- `GET /api/company_roof?lon=&lat=` — cherche le toit (bâtiment Microsoft ou toit détecté/tracé) contenant ces coordonnées (test point-dans-polygone par ray casting sur les candidats dans un rayon de ~300m), retourne sa surface et sa source
 - `GET /api/geocode?q=` — géocode un nom de lieu via Nominatim/OSM (restreint au Maroc), utilisé par la barre de recherche
 
 Les bâtiments OSM sont récupérés depuis Overpass, découpés en tuiles de grille (`TILE_SIZE_DEG`) pour permettre un cache fin et des requêtes parallèles. La surface de chaque bâtiment (OSM, détecté par IA, ou tracé manuellement) est calculée par projection équirectangulaire locale puis formule du lacet (shoelace).
@@ -148,7 +150,9 @@ Le cache des bâtiments OSM est doublé en mémoire et sur disque (`tile_cache.j
 
 ### Segmentation IA (`segmentation.py`)
 
-Au clic, une grille de tuiles satellite Esri (haute résolution, zoom 19) est assemblée autour du point cliqué, puis [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) (version allégée de Segment Anything, ~40 Mo, tourne sur CPU) segmente la forme sous le point. Pour la sélection de zone, `SamAutomaticMaskGenerator` détecte automatiquement toutes les formes de la zone, filtrées par taille plausible (15–4000 m²) pour ne garder que des toits probables. Le masque obtenu est converti en polygone géoréférencé et sa surface est calculée.
+Au clic, une grille de tuiles satellite Esri (haute résolution, zoom 19) est assemblée autour du point cliqué, puis [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) (version allégée de Segment Anything, ~40 Mo, tourne sur CPU) segmente la forme sous le point. Pour la sélection de zone, `SamAutomaticMaskGenerator` (grille de 20×20 points d'échantillonnage) détecte automatiquement toutes les formes de la zone, filtrées par taille plausible (15–4000 m²) pour ne garder que des toits probables. Le masque obtenu est converti en polygone géoréférencé et sa surface est calculée.
+
+La densité de la grille de points (`points_per_side`) est le principal levier de compromis précision/vitesse sur CPU : plus dense détecte plus de petits toits mais ralentit fortement (le coût augmente au carré du paramètre) ; augmenter le niveau de zoom des tuiles seul n'améliore pas la détection sans densifier la grille en proportion, car il faut alors plus de tuiles pour couvrir la même zone.
 
 **Limites à connaître** : le modèle segmente une forme visuellement cohérente, pas spécifiquement un « bâtiment » — en tissu urbain dense (toits accolés) il peut regrouper plusieurs bâtiments en un seul contour, et en mode zone il peut aussi capter des cours, terrains de sport ou parkings (aucune notion sémantique de « bâtiment »). Aucun fine-tuning spécifique aux toits marocains n'a été effectué ; c'est un modèle généraliste. Le tracé manuel permet de contourner ces limites quand la précision importe.
 
@@ -157,5 +161,5 @@ Au clic, une grille de tuiles satellite Esri (haute résolution, zoom 19) est as
 - Certains miroirs Overpass publics peuvent être bloqués selon le réseau utilisé (pare-feu d'entreprise, etc.) ; l'app essaie plusieurs miroirs en cascade.
 - Les données OSM proviennent de contributions collaboratives : la couverture et la précision varient selon les zones (meilleure en centre-ville, plus partielle en périphérie/zones rurales) — la détection IA vise à combler ces zones non cartographiées.
 - Le premier clic pour la détection IA après démarrage du serveur peut être plus lent (téléchargement du modèle + chargement en mémoire) ; les clics suivants sont plus rapides.
-- La sélection de zone n'a pas de limite de taille : une très grande zone peut prendre plusieurs minutes à analyser (calcul CPU).
+- La sélection de zone n'a pas de limite de taille : une très grande zone peut prendre plusieurs minutes à analyser (calcul CPU). Le serveur Flask tourne en mode `threaded=True` afin qu'une détection de zone longue ne bloque pas les autres requêtes (chargement des bâtiments, entreprises, etc.) pendant son exécution.
 - L'estimation de panneaux solaires suppose des panneaux de 1.7 m² (1.0m × 1.7m), 400 W chacun, sur 70% de la surface du toit (le reste = accès/marges/obstacles) — hypothèses simplificatrices, ajustables dans `static/app.js` (constantes `SOLAR_PANEL_AREA_M2`, `SOLAR_PANEL_POWER_W`, `SOLAR_USABLE_ROOF_FRACTION`), sans tenir compte de l'orientation/inclinaison réelle du toit.

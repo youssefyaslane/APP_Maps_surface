@@ -6,3 +6,4 @@ server.log
 .claude/
 mobile_sam.pt
 Data_clients/
+.env

@@ -83,27 +83,31 @@ const msBuildingsLayer = L.geoJSON(null, {
   },
 });
 
-const segmentationLayer = L.geoJSON(null, {
-  style: (feature) =>
-    feature.properties.source === "manual-trace"
-      ? { color: "#2979ff", weight: 2, dashArray: "6 4", fillColor: "#82b1ff", fillOpacity: 0.35 }
-      : { color: "#ff5252", weight: 2, dashArray: "6 4", fillColor: "#ff8a80", fillOpacity: 0.35 },
-  onEachFeature: (feature, layer) => {
-    const name =
-      feature.properties.source === "manual-trace"
-        ? "Toit tracé manuellement (clic pour supprimer)"
-        : "Bâtiment détecté par IA (clic pour supprimer)";
-    layer.on({
-      mouseover: (e) => showTooltip(e, { ...feature.properties, name }),
-      mousemove: (e) => moveTooltip(e),
-      mouseout: () => hideTooltip(),
-      click: (e) => {
-        L.DomEvent.stopPropagation(e);
-        deleteIaSegment(feature.id, layer);
-      },
-    });
-  },
-}).addTo(map);
+function makeDeletableLayer(style, name) {
+  return L.geoJSON(null, {
+    style: () => style,
+    onEachFeature: (feature, layer) => {
+      layer.on({
+        mouseover: (e) => showTooltip(e, { ...feature.properties, name: `${name} (clic pour supprimer)` }),
+        mousemove: (e) => moveTooltip(e),
+        mouseout: () => hideTooltip(),
+        click: (e) => {
+          L.DomEvent.stopPropagation(e);
+          deleteIaSegment(feature.id, layer);
+        },
+      });
+    },
+  }).addTo(map);
+}
+
+const aiDetectedLayer = makeDeletableLayer(
+  { color: "#ff5252", weight: 2, dashArray: "6 4", fillColor: "#ff8a80", fillOpacity: 0.35 },
+  "Bâtiment détecté par IA"
+);
+const manualTraceLayer = makeDeletableLayer(
+  { color: "#2979ff", weight: 2, dashArray: "6 4", fillColor: "#82b1ff", fillOpacity: 0.35 },
+  "Toit tracé manuellement"
+);
 
 const companiesLayer = L.geoJSON(null, {
   pointToLayer: (feature, latlng) =>
@@ -129,7 +133,7 @@ const companiesLayer = L.geoJSON(null, {
       click: (e) => {
         L.DomEvent.stopPropagation(e);
         hideTooltip();
-        openCompanyPanel(feature.properties);
+        openCompanyPanel(feature.properties, layer.getLatLng());
       },
     });
   },
@@ -142,6 +146,8 @@ L.control
     { "Plan": streetLayer, "Satellite": satelliteLayer },
     {
       "Bâtiments OpenStreetMap": buildingsLayer,
+      "Bâtiments détectés par IA": aiDetectedLayer,
+      "Toits tracés manuellement": manualTraceLayer,
       "Entreprises": companiesLayer,
       "Bâtiments IA (Microsoft)": msBuildingsLayer,
     }
@@ -239,7 +245,7 @@ function field(icon, label, value, isLink = false) {
   `;
 }
 
-function openCompanyPanel(props) {
+function openCompanyPanel(props, latlng) {
   const categoryBadge = props.category
     ? `<span class="field-category">${escapeHtml(props.category)}</span>`
     : "";
@@ -252,8 +258,37 @@ function openCompanyPanel(props) {
     ${field("✉️", "Email", props.email)}
     ${field("🌐", "Site web", props.website, true)}
     ${field("⭐", "Note", props.rating)}
+    <div class="field" id="company-roof-field">
+      <span class="field-icon">🏠</span>
+      <span class="field-body"><span class="field-label">Toit</span>Recherche...</span>
+    </div>
   `;
   companyPanelEl.classList.remove("hidden");
+  loadCompanyRoof(latlng);
+}
+
+async function loadCompanyRoof(latlng) {
+  const roofFieldEl = document.getElementById("company-roof-field");
+  try {
+    const params = new URLSearchParams({ lon: latlng.lng, lat: latlng.lat });
+    const resp = await fetch(`/api/company_roof?${params.toString()}`);
+    const data = await resp.json();
+    if (!roofFieldEl) return; // panneau fermé/changé entre-temps
+
+    if (!resp.ok || !data.area_m2) {
+      roofFieldEl.remove();
+      return;
+    }
+
+    const solar = estimateSolarPanels(data.area_m2);
+    const solarText = solar
+      ? ` — ☀️ ~${solar.nPanels} panneau(x) (${solar.capacityKWc.toLocaleString("fr-FR")} kWc)`
+      : "";
+    roofFieldEl.querySelector(".field-body").innerHTML =
+      `<span class="field-label">Toit</span>${data.area_m2.toLocaleString("fr-FR")} m²${solarText}`;
+  } catch (err) {
+    if (roofFieldEl) roofFieldEl.remove();
+  }
 }
 
 function closeCompanyPanel() {
@@ -270,8 +305,13 @@ function addIaFeatures(featureCollection) {
     loadedIaIds.add(f.id);
     return true;
   });
-  if (newFeatures.length) {
-    segmentationLayer.addData({ type: "FeatureCollection", features: newFeatures });
+  const manualFeatures = newFeatures.filter((f) => f.properties.source === "manual-trace");
+  const aiFeatures = newFeatures.filter((f) => f.properties.source !== "manual-trace");
+  if (aiFeatures.length) {
+    aiDetectedLayer.addData({ type: "FeatureCollection", features: aiFeatures });
+  }
+  if (manualFeatures.length) {
+    manualTraceLayer.addData({ type: "FeatureCollection", features: manualFeatures });
   }
 }
 
@@ -284,7 +324,7 @@ async function deleteIaSegment(id, layer) {
       setTimeout(() => setStatus(null), 2500);
       return;
     }
-    segmentationLayer.removeLayer(layer);
+    layer.remove();
     loadedIaIds.delete(id);
   } catch (err) {
     setStatus("Erreur réseau pendant la suppression", true);

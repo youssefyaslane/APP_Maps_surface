@@ -254,6 +254,46 @@ def _query_ms_buildings(bbox):
     return [{"id": r[0], "polygon": r[1], "area_m2": r[2]} for r in rows]
 
 
+# Rayon de recherche (en degrés) pour trouver les toits candidats autour
+# d'une entreprise avant le test point-dans-polygone (~300m).
+ROOF_LOOKUP_RADIUS_DEG = 0.003
+
+
+def _point_in_polygon(lon, lat, polygon):
+    """Test point-dans-polygone par ray casting (algorithme standard)."""
+    inside = False
+    n = len(polygon)
+    x, y = lon, lat
+    x1, y1 = polygon[-1]
+    for x2, y2 in polygon:
+        if (y1 > y) != (y2 > y):
+            x_intersect = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+            if x < x_intersect:
+                inside = not inside
+        x1, y1 = x2, y2
+    return inside
+
+
+def _find_roof_at_point(lon, lat):
+    """Cherche un toit (ms_buildings ou ia_segments) contenant ce point."""
+    bbox = (
+        lat - ROOF_LOOKUP_RADIUS_DEG,
+        lon - ROOF_LOOKUP_RADIUS_DEG,
+        lat + ROOF_LOOKUP_RADIUS_DEG,
+        lon + ROOF_LOOKUP_RADIUS_DEG,
+    )
+
+    for candidate in _query_ms_buildings(bbox):
+        if _point_in_polygon(lon, lat, candidate["polygon"]):
+            return {"area_m2": candidate["area_m2"], "source": "ms-buildings"}
+
+    for candidate in _query_ia_segments(bbox):
+        if _point_in_polygon(lon, lat, candidate["polygon"]):
+            return {"area_m2": candidate["area_m2"], "source": candidate["source"]}
+
+    return None
+
+
 # Miroirs Overpass accessibles depuis ce réseau (certains miroirs comme
 # overpass-api.de/overpass.kumi.systems sont bloqués par le pare-feu local).
 OVERPASS_URLS = [
@@ -743,6 +783,23 @@ def api_ms_buildings():
     return jsonify({"type": "FeatureCollection", "features": features})
 
 
+@app.route("/api/company_roof")
+def api_company_roof():
+    """Trouve le toit (ms_buildings ou ia_segments) sous les coordonnées
+    d'une entreprise, pour relier potentiel solaire et prospect."""
+    try:
+        lon = float(request.args["lon"])
+        lat = float(request.args["lat"])
+    except (KeyError, ValueError):
+        return jsonify({"error": "Paramètres lon/lat invalides"}), 400
+
+    roof = _find_roof_at_point(lon, lat)
+    if roof is None:
+        return jsonify({"area_m2": None})
+
+    return jsonify({"area_m2": roof["area_m2"], "source": roof["source"]})
+
+
 def _city_viewport_bbox(center, half_span_deg=0.012):
     lat, lon = center
     return (lat - half_span_deg, lon - half_span_deg, lat + half_span_deg, lon + half_span_deg)
@@ -794,4 +851,4 @@ if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
     threading.Thread(target=_prewarm_segmentation_model, daemon=True).start()
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, threaded=True)

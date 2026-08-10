@@ -169,7 +169,7 @@ def _get_mask_generator():
     model.eval()
     _mask_generator = SamAutomaticMaskGenerator(
         model,
-        points_per_side=16,
+        points_per_side=20,
         pred_iou_thresh=0.86,
         stability_score_thresh=0.9,
         min_mask_region_area=200,
