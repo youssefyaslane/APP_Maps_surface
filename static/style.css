@@ -79,6 +79,19 @@ html, body {
   color: #fff;
 }
 
+/* Lien vers le tableau de bord : rendu comme les boutons voisins. */
+.dashboard-link {
+  display: inline-block;
+  text-decoration: none;
+  color: #ef6c00;
+  border-color: #ef6c00;
+}
+
+.dashboard-link:hover {
+  background: #ef6c00;
+  color: #fff;
+}
+
 .points-controls {
   position: absolute;
   z-index: 1000;

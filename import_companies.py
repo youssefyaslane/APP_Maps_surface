@@ -47,18 +47,18 @@ def import_companies(xlsx_path):
     try:
         with conn, conn.cursor() as cur:
             for row in rows:
-                lat = _first(get(row, "latitude"), get(row, "location/lat"))
-                lon = _first(get(row, "longitude"), get(row, "location/lng"))
-                name = get(row, "title")
+                lat = _first(get(row, "latitude"), get(row, "location/lat"), get(row, "Latitude"))
+                lon = _first(get(row, "longitude"), get(row, "location/lng"), get(row, "Longitude"))
+                name = _first(get(row, "title"), get(row, "Nom"))
                 if lat is None or lon is None or not name:
                     skipped += 1
                     continue
 
-                phone = _first(get(row, "phone"), get(row, "phones/0"))
+                phone = _first(get(row, "phone"), get(row, "phones/0"), get(row, "Téléphone"))
                 email = _first(get(row, "email"), get(row, "emails/0"))
-                category = _first(get(row, "category"), get(row, "categories/0"))
-                rating = _first(get(row, "rating"), get(row, "totalScore"))
-                place_id = get(row, "placeId")
+                category = _first(get(row, "category"), get(row, "categories/0"), get(row, "Catégorie"))
+                rating = _first(get(row, "rating"), get(row, "totalScore"), get(row, "Note"))
+                place_id = _first(get(row, "placeId"), get(row, "Place ID"))
 
                 cur.execute(
                     """
@@ -79,11 +79,11 @@ def import_companies(xlsx_path):
                     (
                         name,
                         category,
-                        get(row, "address"),
+                        _first(get(row, "address"), get(row, "Adresse")),
                         get(row, "city"),
                         phone,
                         email,
-                        get(row, "website"),
+                        _first(get(row, "website"), get(row, "Site Web")),
                         rating,
                         float(lon),
                         float(lat),

@@ -1,0 +1,245 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: "Segoe UI", Roboto, Arial, sans-serif;
+  background: #f4f6f8;
+  color: #263238;
+}
+
+.dash-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 18px 28px;
+  background: #1f5130;
+  color: #fff;
+}
+
+.dash-header h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 14px;
+  opacity: 0.85;
+}
+
+.btn-map {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  text-decoration: none;
+  padding: 9px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.btn-map:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  padding: 20px 28px 4px;
+}
+
+.stat-card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 16px 18px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.stat-card.clickable {
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.stat-card.clickable:hover {
+  border-color: #ef6c00;
+  transform: translateY(-2px);
+}
+
+.stat-card.clickable .stat-value {
+  color: #ef6c00;
+}
+
+.stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: #1f5130;
+}
+
+.stat-label {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #607d8b;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 18px 28px;
+  align-items: center;
+}
+
+.filters input {
+  padding: 9px 12px;
+  border: 1px solid #cfd8dc;
+  border-radius: 8px;
+  font-size: 14px;
+  min-width: 170px;
+}
+
+.filters button {
+  padding: 9px 18px;
+  border: none;
+  border-radius: 8px;
+  background: #2e7d32;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.filters button:hover {
+  background: #256428;
+}
+
+.filters button.secondary {
+  background: #78909c;
+}
+
+.filters button.secondary:hover {
+  background: #607d8b;
+}
+
+.btn-export {
+  margin-left: auto;
+  padding: 9px 18px;
+  border-radius: 8px;
+  background: #ef6c00;
+  color: #fff;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.btn-export:hover {
+  background: #d35f00;
+}
+
+.result-count {
+  margin: 0 28px 10px;
+  font-size: 13px;
+  color: #607d8b;
+}
+
+.table-wrap {
+  margin: 0 28px 32px;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+thead th {
+  text-align: left;
+  padding: 13px 14px;
+  background: #eceff1;
+  color: #37474f;
+  font-weight: 600;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+}
+
+tbody td {
+  padding: 12px 14px;
+  border-top: 1px solid #eceff1;
+  vertical-align: top;
+}
+
+tbody tr:hover {
+  background: #f9fbe7;
+}
+
+.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+td.num strong {
+  color: #1f5130;
+}
+
+.rank {
+  color: #90a4ae;
+  font-weight: 600;
+}
+
+.company-name {
+  font-weight: 600;
+}
+
+.company-address {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #78909c;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: #e0e0e0;
+  color: #424242;
+  white-space: nowrap;
+}
+
+.badge-osm { background: #c8e6c9; color: #1b5e20; }
+.badge-ia { background: #ffcdd2; color: #b71c1c; }
+.badge-manual { background: #bbdefb; color: #0d47a1; }
+.badge-ms { background: #e1bee7; color: #4a148c; }
+
+.contact a {
+  display: block;
+  color: #1565c0;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.contact a:hover {
+  text-decoration: underline;
+}
+
+.map-link {
+  color: #2e7d32;
+  text-decoration: none;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.map-link:hover {
+  text-decoration: underline;
+}
+
+.empty {
+  text-align: center;
+  padding: 40px;
+  color: #90a4ae;
+}

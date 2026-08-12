@@ -5,6 +5,7 @@ de ce point, on fait tourner MobileSAM pour segmenter la forme sous le clic,
 puis on convertit le masque de pixels en polygone géographique et on calcule
 sa surface (même formule que pour les données OSM).
 """
+import colorsys
 import io
 import math
 import os
@@ -24,6 +25,14 @@ GRID_TILES = 3  # grille de 3x3 tuiles autour du point cliqué, pour avoir du co
 
 MIN_ROOF_AREA_M2 = 15.0
 MAX_ROOF_AREA_M2 = 4000.0
+
+# Filtre couleur pour écarter la végétation et les routes/asphalte du mode zone
+# (le modèle SAM n'a aucune notion sémantique de "toit", il segmente toute
+# forme visuellement cohérente). Teinte HSV en degrés, saturation/valeur en %.
+VEGETATION_HUE_RANGE = (70, 170)  # verts
+VEGETATION_MIN_SATURATION = 0.15
+ASPHALT_MAX_SATURATION = 0.12  # gris quasi neutre
+ASPHALT_MAX_VALUE = 0.55  # sombre (asphalte), pour ne pas écarter les toits gris clair/béton
 
 _predictor = None
 _mask_generator = None
@@ -177,6 +186,27 @@ def _get_mask_generator():
     return _mask_generator
 
 
+def _is_vegetation_or_asphalt(image_np, mask):
+    """Détermine si un masque correspond à de la végétation ou de l'asphalte
+    (routes/parkings) d'après sa couleur moyenne, pour l'écarter des toits
+    détectés en mode zone."""
+    pixels = image_np[mask]
+    if len(pixels) == 0:
+        return False
+
+    r, g, b = (pixels[:, i].mean() / 255.0 for i in range(3))
+    hue, saturation, value = colorsys.rgb_to_hsv(r, g, b)
+    hue_deg = hue * 360
+
+    if saturation >= VEGETATION_MIN_SATURATION and VEGETATION_HUE_RANGE[0] <= hue_deg <= VEGETATION_HUE_RANGE[1]:
+        return True
+
+    if saturation <= ASPHALT_MAX_SATURATION and value <= ASPHALT_MAX_VALUE:
+        return True
+
+    return False
+
+
 def _mask_to_polygon_px(mask):
     """Extrait le plus grand contour externe d'un masque booléen (approche sans cv2)."""
     import cv2
@@ -269,6 +299,9 @@ def segment_roofs_in_zone(south, west, north, east):
         x, y, w, h = ann["bbox"]
         # Écarte les formes qui touchent le bord de l'image (probablement coupées)
         if x <= 0 or y <= 0 or x + w >= width_px or y + h >= height_px:
+            continue
+
+        if _is_vegetation_or_asphalt(image_np, ann["segmentation"]):
             continue
 
         polygon_px = _mask_to_polygon_px(ann["segmentation"])

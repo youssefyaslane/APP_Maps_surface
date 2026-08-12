@@ -245,6 +245,12 @@ function field(icon, label, value, isLink = false) {
   `;
 }
 
+// Couches de contours de bâtiments à isoler quand on affiche le toit d'une
+// entreprise sélectionnée (masquées le temps du panneau, puis restaurées).
+const ROOF_LAYERS = [buildingsLayer, aiDetectedLayer, manualTraceLayer, msBuildingsLayer];
+let hiddenRoofLayers = [];
+let companyRoofHighlight = null;
+
 function openCompanyPanel(props, latlng) {
   const categoryBadge = props.category
     ? `<span class="field-category">${escapeHtml(props.category)}</span>`
@@ -264,7 +270,27 @@ function openCompanyPanel(props, latlng) {
     </div>
   `;
   companyPanelEl.classList.remove("hidden");
+  if (companyRoofHighlight) {
+    map.removeLayer(companyRoofHighlight);
+    companyRoofHighlight = null;
+  }
+  isolateRoofLayers();
   loadCompanyRoof(latlng);
+}
+
+function isolateRoofLayers() {
+  if (hiddenRoofLayers.length) return; // déjà isolé (changement d'entreprise sans fermer le panneau)
+  hiddenRoofLayers = ROOF_LAYERS.filter((layer) => map.hasLayer(layer));
+  hiddenRoofLayers.forEach((layer) => map.removeLayer(layer));
+}
+
+function restoreRoofLayers() {
+  hiddenRoofLayers.forEach((layer) => map.addLayer(layer));
+  hiddenRoofLayers = [];
+  if (companyRoofHighlight) {
+    map.removeLayer(companyRoofHighlight);
+    companyRoofHighlight = null;
+  }
 }
 
 async function loadCompanyRoof(latlng) {
@@ -286,6 +312,16 @@ async function loadCompanyRoof(latlng) {
       : "";
     roofFieldEl.querySelector(".field-body").innerHTML =
       `<span class="field-label">Toit</span>${data.area_m2.toLocaleString("fr-FR")} m²${solarText}`;
+
+    if (data.polygon && data.polygon.length >= 3) {
+      const latlngs = data.polygon.map(([lon, lat]) => [lat, lon]);
+      companyRoofHighlight = L.polygon(latlngs, {
+        color: "#ffd54f",
+        weight: 3,
+        fillColor: "#ffd54f",
+        fillOpacity: 0.4,
+      }).addTo(map);
+    }
   } catch (err) {
     if (roofFieldEl) roofFieldEl.remove();
   }
@@ -293,6 +329,7 @@ async function loadCompanyRoof(latlng) {
 
 function closeCompanyPanel() {
   companyPanelEl.classList.add("hidden");
+  restoreRoofLayers();
 }
 
 companyPanelCloseEl.addEventListener("click", closeCompanyPanel);
@@ -795,5 +832,16 @@ pointsConfirmBtn.addEventListener("click", async () => {
 
 pointsCancelBtn.addEventListener("click", clearPointsSession);
 
+// Centrage direct via ?lat=&lon= (lien « Voir sur la carte » du tableau de bord).
+function applyUrlLocation() {
+  const params = new URLSearchParams(window.location.search);
+  const lat = parseFloat(params.get("lat"));
+  const lon = parseFloat(params.get("lon"));
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    map.setView([lat, lon], 19);
+  }
+}
+
 loadCitiesInfo();
 loadCompanies();
+applyUrlLocation();

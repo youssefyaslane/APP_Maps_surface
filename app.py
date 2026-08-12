@@ -1,4 +1,6 @@
 """Flask app: carte du Maroc avec surface des vrais bâtiments (OpenStreetMap) au survol."""
+import csv
+import io
 import json
 import math
 import os
@@ -9,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import psycopg2
 import psycopg2.pool
 import requests
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 
 import segmentation
 
@@ -90,6 +92,22 @@ def _init_db():
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_companies_coords ON companies (lat, lon)"
             )
+            # Potentiel solaire calculé par compute_solar_potential.py (toit
+            # trouvé sous l'entreprise + estimation panneaux/puissance).
+            cur.execute(
+                """
+                ALTER TABLE companies
+                    ADD COLUMN IF NOT EXISTS roof_area_m2 DOUBLE PRECISION,
+                    ADD COLUMN IF NOT EXISTS roof_source TEXT,
+                    ADD COLUMN IF NOT EXISTS solar_panels INTEGER,
+                    ADD COLUMN IF NOT EXISTS solar_kwc DOUBLE PRECISION,
+                    ADD COLUMN IF NOT EXISTS solar_computed_at TIMESTAMPTZ
+                """
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_companies_solar_kwc "
+                "ON companies (solar_kwc DESC NULLS LAST)"
+            )
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS ms_buildings (
@@ -149,6 +167,7 @@ def _store_ia_segment(polygon, area_m2, source="ia-segmentation"):
                 (json.dumps(polygon), area_m2, lon, lat, source),
             )
             new_id = cur.fetchone()[0]
+            _apply_solar_for_polygon(cur, polygon, area_m2, source)
             return {"id": new_id, "polygon": polygon, "area_m2": area_m2, "source": source}
     finally:
         pool.putconn(conn)
@@ -174,15 +193,121 @@ def _query_ia_segments(bbox):
 
 
 def _delete_ia_segment(seg_id):
+    """Supprime un toit détecté/tracé, puis recalcule le potentiel solaire des
+    entreprises qui s'appuyaient dessus (un autre toit peut exister dessous)."""
     pool = _get_db_pool()
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:
+            cur.execute("SELECT polygon FROM ia_segments WHERE id = %s", (seg_id,))
+            row = cur.fetchone()
+            if row is None:
+                return False
+            polygon = row[0]
+
             cur.execute("DELETE FROM ia_segments WHERE id = %s", (seg_id,))
-            deleted = cur.rowcount > 0
+            affected = _companies_inside_polygon(cur, polygon, only_computed=True)
     finally:
         pool.putconn(conn)
-    return deleted
+
+    # Hors transaction : la suppression est committée, donc la recherche de toit
+    # ne verra plus le segment effacé.
+    if affected:
+        _recompute_solar_for_companies(affected)
+    return True
+
+
+def _recompute_solar_for_companies(company_ids):
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT id, lon, lat FROM companies WHERE id = ANY(%s)", (company_ids,))
+            targets = cur.fetchall()
+    finally:
+        pool.putconn(conn)
+
+    for company_id, lon, lat in targets:
+        roof = _find_roof_at_point(lon, lat)
+        area = roof["area_m2"] if roof else None
+        source = roof["source"] if roof else None
+        n_panels, kwc = _estimate_solar(area)
+
+        conn = pool.getconn()
+        try:
+            with conn, conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE companies SET
+                        roof_area_m2 = %s,
+                        roof_source = %s,
+                        solar_panels = %s,
+                        solar_kwc = %s,
+                        solar_computed_at = now()
+                    WHERE id = %s
+                    """,
+                    (area, source, n_panels, kwc, company_id),
+                )
+        finally:
+            pool.putconn(conn)
+
+
+# Hypothèses d'installation, identiques à l'affichage carte (static/app.js) et
+# au calcul en masse (compute_solar_potential.py).
+SOLAR_PANEL_AREA_M2 = 1.7
+SOLAR_PANEL_POWER_W = 400
+SOLAR_USABLE_ROOF_FRACTION = 0.7
+
+
+def _estimate_solar(area_m2):
+    if not area_m2 or area_m2 <= 0:
+        return 0, 0.0
+    n_panels = int(area_m2 * SOLAR_USABLE_ROOF_FRACTION / SOLAR_PANEL_AREA_M2)
+    return n_panels, round(n_panels * SOLAR_PANEL_POWER_W / 1000, 2)
+
+
+def _companies_inside_polygon(cur, polygon, only_computed=False):
+    """Entreprises dont les coordonnées tombent dans ce polygone."""
+    lons = [p[0] for p in polygon]
+    lats = [p[1] for p in polygon]
+
+    extra = " AND solar_computed_at IS NOT NULL" if only_computed else ""
+    cur.execute(
+        f"""
+        SELECT id, lon, lat FROM companies
+        WHERE lon BETWEEN %s AND %s AND lat BETWEEN %s AND %s{extra}
+        """,
+        (min(lons), max(lons), min(lats), max(lats)),
+    )
+    return [
+        company_id
+        for company_id, lon, lat in cur.fetchall()
+        if _point_in_polygon(lon, lat, polygon)
+    ]
+
+
+def _apply_solar_for_polygon(cur, polygon, area_m2, source):
+    """Renseigne le potentiel solaire des entreprises situées sous ce toit
+    fraîchement enregistré, pour qu'elles apparaissent aussitôt au tableau de
+    bord. Ne touche pas celles déjà rattachées à un bâtiment OSM (prioritaire)."""
+    affected = _companies_inside_polygon(cur, polygon)
+    if not affected:
+        return 0
+
+    n_panels, kwc = _estimate_solar(area_m2)
+    cur.execute(
+        """
+        UPDATE companies SET
+            roof_area_m2 = %s,
+            roof_source = %s,
+            solar_panels = %s,
+            solar_kwc = %s,
+            solar_computed_at = now()
+        WHERE id = ANY(%s) AND (roof_source IS DISTINCT FROM 'osm')
+        """,
+        (area_m2, source, n_panels, kwc, affected),
+    )
+    return cur.rowcount
 
 
 def _query_companies(bbox):
@@ -275,7 +400,9 @@ def _point_in_polygon(lon, lat, polygon):
 
 
 def _find_roof_at_point(lon, lat):
-    """Cherche un toit (ms_buildings ou ia_segments) contenant ce point."""
+    """Cherche un toit (OSM, ia_segments, ou ms_buildings) contenant ce point.
+    OSM est prioritaire (données cartographiées réelles) sur les sources
+    détectées par IA (ms-buildings, ia-segmentation), moins fiables."""
     bbox = (
         lat - ROOF_LOOKUP_RADIUS_DEG,
         lon - ROOF_LOOKUP_RADIUS_DEG,
@@ -283,13 +410,26 @@ def _find_roof_at_point(lon, lat):
         lon + ROOF_LOOKUP_RADIUS_DEG,
     )
 
-    for candidate in _query_ms_buildings(bbox):
-        if _point_in_polygon(lon, lat, candidate["polygon"]):
-            return {"area_m2": candidate["area_m2"], "source": "ms-buildings"}
+    for feature in _cached_osm_buildings_at(bbox):
+        polygon = feature["geometry"]["coordinates"][0]
+        if _point_in_polygon(lon, lat, polygon):
+            return {
+                "area_m2": feature["properties"]["area_m2"],
+                "source": "osm",
+                "polygon": polygon,
+            }
 
     for candidate in _query_ia_segments(bbox):
         if _point_in_polygon(lon, lat, candidate["polygon"]):
-            return {"area_m2": candidate["area_m2"], "source": candidate["source"]}
+            return {
+                "area_m2": candidate["area_m2"],
+                "source": candidate["source"],
+                "polygon": candidate["polygon"],
+            }
+
+    for candidate in _query_ms_buildings(bbox):
+        if _point_in_polygon(lon, lat, candidate["polygon"]):
+            return {"area_m2": candidate["area_m2"], "source": "ms-buildings", "polygon": candidate["polygon"]}
 
     return None
 
@@ -370,6 +510,50 @@ def _tile_bbox(lat_idx, lon_idx):
         (lat_idx + 1) * TILE_SIZE_DEG,
         (lon_idx + 1) * TILE_SIZE_DEG,
     )
+
+
+_osm_tile_locks_guard = threading.Lock()
+_osm_tile_locks = {}
+
+
+def _osm_tile_lock(tile_key):
+    """Verrou par tuile : évite que plusieurs recherches simultanées sur la
+    même zone déclenchent chacune leur propre appel Overpass."""
+    with _osm_tile_locks_guard:
+        return _osm_tile_locks.setdefault(tile_key, threading.Lock())
+
+
+def _cached_osm_tile(tile_key):
+    """Bâtiments OSM d'une tuile, via le cache partagé avec la carte (évite un
+    appel Overpass par entreprise lors des calculs en masse)."""
+    cached = _cache.get(tile_key)
+    if cached and time.time() - cached["ts"] < CACHE_TTL_SECONDS:
+        return cached["features"]
+
+    with _osm_tile_lock(tile_key):
+        # Une autre requête a pu remplir la tuile pendant l'attente du verrou.
+        cached = _cache.get(tile_key)
+        if cached and time.time() - cached["ts"] < CACHE_TTL_SECONDS:
+            return cached["features"]
+
+        try:
+            osm_data = _fetch_overpass(_tile_bbox(*tile_key))
+        except (RuntimeError, requests.RequestException):
+            return []
+
+        features = _build_geojson(osm_data)
+        _cache[tile_key] = {"ts": time.time(), "features": features}
+
+    return features
+
+
+def _cached_osm_buildings_at(bbox):
+    """Bâtiments OSM couvrant la bbox donnée (plusieurs tuiles si le point est
+    proche d'une frontière de tuile)."""
+    features = []
+    for tile_key in _tile_keys_for_bbox(bbox):
+        features.extend(_cached_osm_tile(tile_key))
+    return features
 
 
 def _bbox_within_morocco(bbox):
@@ -486,6 +670,11 @@ def _build_geojson(osm_data):
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/dashboard")
+def dashboard():
+    return render_template("dashboard.html")
 
 
 @app.route("/api/cities")
@@ -785,7 +974,7 @@ def api_ms_buildings():
 
 @app.route("/api/company_roof")
 def api_company_roof():
-    """Trouve le toit (ms_buildings ou ia_segments) sous les coordonnées
+    """Trouve le toit (ms_buildings, ia_segments ou OSM) sous les coordonnées
     d'une entreprise, pour relier potentiel solaire et prospect."""
     try:
         lon = float(request.args["lon"])
@@ -797,7 +986,153 @@ def api_company_roof():
     if roof is None:
         return jsonify({"area_m2": None})
 
-    return jsonify({"area_m2": roof["area_m2"], "source": roof["source"]})
+    return jsonify(
+        {
+            "area_m2": roof["area_m2"],
+            "source": roof["source"],
+            "polygon": roof["polygon"],
+        }
+    )
+
+
+def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=None):
+    """Entreprises avec leur potentiel solaire calculé, triées par puissance
+    installable décroissante (alimente le tableau de bord commercial)."""
+    clauses = ["solar_computed_at IS NOT NULL", "roof_area_m2 IS NOT NULL"]
+    params = []
+
+    if min_kwc is not None:
+        clauses.append("solar_kwc >= %s")
+        params.append(min_kwc)
+    if city:
+        clauses.append("city ILIKE %s")
+        params.append(f"%{city}%")
+    if category:
+        clauses.append("category ILIKE %s")
+        params.append(f"%{category}%")
+    if search:
+        clauses.append("(name ILIKE %s OR address ILIKE %s)")
+        params.extend([f"%{search}%", f"%{search}%"])
+
+    sql = f"""
+        SELECT id, name, category, address, city, phone, email, website,
+               lon, lat, roof_area_m2, roof_source, solar_panels, solar_kwc
+        FROM companies
+        WHERE {' AND '.join(clauses)}
+        ORDER BY solar_kwc DESC NULLS LAST
+    """
+    if limit:
+        sql += " LIMIT %s"
+        params.append(limit)
+
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+    finally:
+        pool.putconn(conn)
+
+    columns = [
+        "id", "name", "category", "address", "city", "phone", "email", "website",
+        "lon", "lat", "roof_area_m2", "roof_source", "solar_panels", "solar_kwc",
+    ]
+    return [dict(zip(columns, row)) for row in rows]
+
+
+# Seuil au-delà duquel un prospect est considéré comme une cible prioritaire
+# (installation d'envergure, à traiter en premier par les commerciaux).
+BIG_PROSPECT_KWC = 100
+
+
+def _prospects_summary():
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    count(*),
+                    count(*) FILTER (WHERE solar_computed_at IS NOT NULL),
+                    count(*) FILTER (WHERE roof_area_m2 IS NOT NULL),
+                    COALESCE(sum(solar_kwc), 0),
+                    COALESCE(sum(solar_panels), 0),
+                    COALESCE(avg(roof_area_m2) FILTER (WHERE roof_area_m2 IS NOT NULL), 0),
+                    count(*) FILTER (WHERE solar_kwc >= %s)
+                FROM companies
+                """,
+                (BIG_PROSPECT_KWC,),
+            )
+            total, computed, with_roof, total_kwc, total_panels, avg_area, big = cur.fetchone()
+    finally:
+        pool.putconn(conn)
+
+    return {
+        "total_companies": total,
+        "computed": computed,
+        "with_roof": with_roof,
+        "total_kwc": round(float(total_kwc), 1),
+        "total_panels": int(total_panels),
+        "avg_roof_area_m2": round(float(avg_area), 1),
+        "big_prospects": big,
+        "big_prospect_threshold": BIG_PROSPECT_KWC,
+    }
+
+
+@app.route("/api/prospects")
+def api_prospects():
+    try:
+        min_kwc = request.args.get("min_kwc", type=float)
+        limit = request.args.get("limit", type=int)  # sans limite par défaut
+    except ValueError:
+        return jsonify({"error": "Paramètres de filtre invalides"}), 400
+
+    prospects = _query_prospects(
+        min_kwc=min_kwc,
+        city=request.args.get("city"),
+        category=request.args.get("category"),
+        search=request.args.get("search"),
+        limit=limit,
+    )
+    return jsonify({"summary": _prospects_summary(), "prospects": prospects})
+
+
+@app.route("/api/prospects.csv")
+def api_prospects_csv():
+    """Export CSV de la liste de prospects, pour les commerciaux (Excel)."""
+    prospects = _query_prospects(
+        min_kwc=request.args.get("min_kwc", type=float),
+        city=request.args.get("city"),
+        category=request.args.get("category"),
+        search=request.args.get("search"),
+    )
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, delimiter=";")
+    writer.writerow(
+        [
+            "Nom", "Catégorie", "Adresse", "Ville", "Téléphone", "Email", "Site web",
+            "Surface toit (m²)", "Source toit", "Panneaux estimés", "Puissance (kWc)",
+            "Latitude", "Longitude",
+        ]
+    )
+    for p in prospects:
+        writer.writerow(
+            [
+                p["name"], p["category"], p["address"], p["city"], p["phone"],
+                p["email"], p["website"], p["roof_area_m2"], p["roof_source"],
+                p["solar_panels"], p["solar_kwc"], p["lat"], p["lon"],
+            ]
+        )
+
+    # BOM UTF-8 pour qu'Excel ouvre correctement les accents.
+    return Response(
+        "﻿" + buffer.getvalue(),
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=prospects_solaire.csv"},
+    )
 
 
 def _city_viewport_bbox(center, half_span_deg=0.012):

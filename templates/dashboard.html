@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prospects solaires — Tableau de bord</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}" />
+</head>
+<body>
+  <header class="dash-header">
+    <div>
+      <h1>☀️ Prospects solaires</h1>
+      <p class="subtitle">Entreprises classées par potentiel d'installation photovoltaïque</p>
+    </div>
+    <a class="btn-map" href="/">🗺️ Retour à la carte</a>
+  </header>
+
+  <section class="stats" id="stats"></section>
+
+  <section class="filters">
+    <input type="text" id="filter-search" placeholder="🔍 Rechercher (nom, adresse)" />
+    <input type="text" id="filter-city" placeholder="Ville (ex: Casablanca)" />
+    <input type="text" id="filter-category" placeholder="Catégorie (ex: Fabricant)" />
+    <input type="number" id="filter-min-kwc" placeholder="Puissance min. (kWc)" min="0" step="10" />
+    <button id="apply-filters">Filtrer</button>
+    <button id="reset-filters" class="secondary">Réinitialiser</button>
+    <a id="export-csv" class="btn-export" href="/api/prospects.csv">⬇️ Exporter en CSV</a>
+  </section>
+
+  <p class="result-count" id="result-count"></p>
+
+  <section class="table-wrap">
+    <table id="prospects-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Entreprise</th>
+          <th>Catégorie</th>
+          <th>Ville</th>
+          <th class="num">Surface toit</th>
+          <th class="num">Panneaux</th>
+          <th class="num">Puissance</th>
+          <th>Source</th>
+          <th>Contact</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="prospects-body">
+        <tr><td colspan="10" class="empty">Chargement...</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+</body>
+</html>
