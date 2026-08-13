@@ -166,6 +166,13 @@ html, body {
   color: #ffd54f;
 }
 
+.tooltip .no-roof {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ff8a80;
+}
+
 .tooltip.hidden {
   display: none;
 }

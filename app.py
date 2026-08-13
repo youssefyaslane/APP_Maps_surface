@@ -318,7 +318,8 @@ def _query_companies(bbox):
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, name, category, address, city, phone, email, website, rating, lon, lat
+                SELECT id, name, category, address, city, phone, email, website, rating,
+                       lon, lat, roof_area_m2, solar_kwc
                 FROM companies
                 WHERE lat BETWEEN %s AND %s AND lon BETWEEN %s AND %s
                 """,
@@ -340,6 +341,9 @@ def _query_companies(bbox):
             "rating": r[8],
             "lon": r[9],
             "lat": r[10],
+            "roof_area_m2": r[11],
+            "solar_kwc": r[12],
+            "has_roof": r[11] is not None,
         }
         for r in rows
     ]
@@ -936,6 +940,9 @@ def api_companies():
                 "email": r["email"],
                 "website": r["website"],
                 "rating": r["rating"],
+                "roof_area_m2": r["roof_area_m2"],
+                "solar_kwc": r["solar_kwc"],
+                "has_roof": r["has_roof"],
             },
         }
         for r in rows

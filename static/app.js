@@ -109,15 +109,24 @@ const manualTraceLayer = makeDeletableLayer(
   "Toit tracé manuellement"
 );
 
+// Vert : toit identifié (prospect qualifié, présent au tableau de bord).
+// Rouge : aucun toit trouvé sous ce point — à tracer manuellement si l'entreprise
+// est intéressante, ou point GPS mal placé par rapport au bâtiment.
+const COMPANY_WITH_ROOF_STYLE = { color: "#1b5e20", fillColor: "#4caf50" };
+const COMPANY_NO_ROOF_STYLE = { color: "#b71c1c", fillColor: "#ef5350" };
+
+function companyMarkerStyle(props) {
+  return props.has_roof ? COMPANY_WITH_ROOF_STYLE : COMPANY_NO_ROOF_STYLE;
+}
+
 const companiesLayer = L.geoJSON(null, {
   pointToLayer: (feature, latlng) =>
     L.circleMarker(latlng, {
       pane: "companiesPane",
       radius: 6,
-      color: "#e65100",
       weight: 2,
-      fillColor: "#ffa726",
       fillOpacity: 0.9,
+      ...companyMarkerStyle(feature.properties),
     }),
   onEachFeature: (feature, layer) => {
     layer.on({
@@ -212,17 +221,51 @@ async function loadCompanies() {
   }
 }
 
+// Remet à jour la couleur des marqueurs déjà affichés après l'ajout ou la
+// suppression d'un toit (vert = toit identifié, rouge = aucun).
+async function refreshCompanyRoofStatus() {
+  const bounds = map.getBounds();
+  const params = new URLSearchParams({
+    south: bounds.getSouth(),
+    west: bounds.getWest(),
+    north: bounds.getNorth(),
+    east: bounds.getEast(),
+  });
+
+  try {
+    const resp = await fetch(`/api/companies?${params.toString()}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const byId = new Map(data.features.map((f) => [f.id, f.properties]));
+
+    companiesLayer.eachLayer((layer) => {
+      const props = byId.get(layer.feature.id);
+      if (!props) return;
+      Object.assign(layer.feature.properties, props);
+      layer.setStyle(companyMarkerStyle(props));
+    });
+  } catch (err) {
+    // non bloquant
+  }
+}
+
 function showCompanyTooltip(e, props) {
   const category = props.category ? `<div>${escapeHtml(props.category)}</div>` : "";
   const address = props.address ? `<div>${escapeHtml(props.address)}</div>` : "";
   const phone = props.phone ? `<div>📞 ${escapeHtml(props.phone)}</div>` : "";
   const rating = props.rating ? `<div>⭐ ${props.rating}</div>` : "";
+  const roof = props.has_roof
+    ? `<div class="solar">🏠 ${props.roof_area_m2.toLocaleString("fr-FR")} m²${
+        props.solar_kwc ? ` — ☀️ ${props.solar_kwc.toLocaleString("fr-FR")} kWc` : ""
+      }</div>`
+    : `<div class="no-roof">⚠️ Aucun toit identifié</div>`;
   tooltipEl.innerHTML = `
     <div><strong>${escapeHtml(props.name || "Entreprise")}</strong></div>
     ${category}
     ${address}
     ${phone}
     ${rating}
+    ${roof}
   `;
   tooltipEl.classList.remove("hidden");
   moveTooltip(e);
@@ -350,6 +393,10 @@ function addIaFeatures(featureCollection) {
   if (manualFeatures.length) {
     manualTraceLayer.addData({ type: "FeatureCollection", features: manualFeatures });
   }
+  if (newFeatures.length) {
+    // Un nouveau toit peut qualifier une entreprise située dessous.
+    refreshCompanyRoofStatus();
+  }
 }
 
 async function deleteIaSegment(id, layer) {
@@ -363,6 +410,7 @@ async function deleteIaSegment(id, layer) {
     }
     layer.remove();
     loadedIaIds.delete(id);
+    refreshCompanyRoofStatus();
   } catch (err) {
     setStatus("Erreur réseau pendant la suppression", true);
     setTimeout(() => setStatus(null), 2500);
