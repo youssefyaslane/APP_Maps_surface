@@ -387,6 +387,13 @@ def _query_ms_buildings(bbox):
 # d'une entreprise avant le test point-dans-polygone (~300m).
 ROOF_LOOKUP_RADIUS_DEG = 0.003
 
+# Rayon de rattrapage (mètres) : le point GPS d'une entreprise (souvent
+# l'entrée ou le trottoir, pas le toit) tombe fréquemment juste à côté du
+# polygone réel. Si aucun toit ne contient le point, on prend le plus proche
+# dans ce rayon plutôt que de renoncer. 20m capte l'imprécision GPS courante
+# sans risquer d'attribuer le bâtiment du voisin.
+ROOF_NEARBY_RADIUS_M = 20.0
+
 
 def _point_in_polygon(lon, lat, polygon):
     """Test point-dans-polygone par ray casting (algorithme standard)."""
@@ -403,10 +410,51 @@ def _point_in_polygon(lon, lat, polygon):
     return inside
 
 
+def _point_to_segment_distance_m(lon, lat, x1, y1, x2, y2):
+    """Distance approximative (mètres) d'un point à un segment [(x1,y1)-(x2,y2)],
+    coordonnées en degrés. Projection plane locale, suffisante à cette échelle."""
+    lat0_rad = math.radians(lat)
+    m_per_deg_lat = 111320.0
+    m_per_deg_lon = 111320.0 * math.cos(lat0_rad)
+
+    px, py = lon * m_per_deg_lon, lat * m_per_deg_lat
+    ax, ay = x1 * m_per_deg_lon, y1 * m_per_deg_lat
+    bx, by = x2 * m_per_deg_lon, y2 * m_per_deg_lat
+
+    dx, dy = bx - ax, by - ay
+    if dx == 0 and dy == 0:
+        return math.hypot(px - ax, py - ay)
+
+    t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)
+    t = max(0.0, min(1.0, t))
+    cx, cy = ax + t * dx, ay + t * dy
+    return math.hypot(px - cx, py - cy)
+
+
+def _distance_to_polygon_m(lon, lat, polygon):
+    """Distance (mètres) d'un point au polygone le plus proche (0 si dedans)."""
+    if _point_in_polygon(lon, lat, polygon):
+        return 0.0
+    n = len(polygon)
+    best = None
+    for i in range(n):
+        x1, y1 = polygon[i]
+        x2, y2 = polygon[(i + 1) % n]
+        d = _point_to_segment_distance_m(lon, lat, x1, y1, x2, y2)
+        if best is None or d < best:
+            best = d
+    return best if best is not None else float("inf")
+
+
 def _find_roof_at_point(lon, lat):
     """Cherche un toit (OSM, ia_segments, ou ms_buildings) contenant ce point.
     OSM est prioritaire (données cartographiées réelles) sur les sources
-    détectées par IA (ms-buildings, ia-segmentation), moins fiables."""
+    détectées par IA (ms-buildings, ia-segmentation), moins fiables.
+
+    Si aucun polygone ne contient exactement le point (le GPS d'une entreprise
+    pointe souvent l'entrée ou le trottoir, pas le toit), reprend le bâtiment
+    le plus proche dans un rayon de ROOF_NEARBY_RADIUS_M, même ordre de
+    priorité des sources en cas de distances comparables."""
     bbox = (
         lat - ROOF_LOOKUP_RADIUS_DEG,
         lon - ROOF_LOOKUP_RADIUS_DEG,
@@ -414,28 +462,37 @@ def _find_roof_at_point(lon, lat):
         lon + ROOF_LOOKUP_RADIUS_DEG,
     )
 
-    for feature in _cached_osm_buildings_at(bbox):
-        polygon = feature["geometry"]["coordinates"][0]
-        if _point_in_polygon(lon, lat, polygon):
-            return {
-                "area_m2": feature["properties"]["area_m2"],
-                "source": "osm",
-                "polygon": polygon,
-            }
+    osm_candidates = [
+        {"area_m2": f["properties"]["area_m2"], "source": "osm", "polygon": f["geometry"]["coordinates"][0]}
+        for f in _cached_osm_buildings_at(bbox)
+    ]
+    ia_candidates = [
+        {"area_m2": c["area_m2"], "source": c["source"], "polygon": c["polygon"]}
+        for c in _query_ia_segments(bbox)
+    ]
+    ms_candidates = [
+        {"area_m2": c["area_m2"], "source": "ms-buildings", "polygon": c["polygon"]}
+        for c in _query_ms_buildings(bbox)
+    ]
 
-    for candidate in _query_ia_segments(bbox):
-        if _point_in_polygon(lon, lat, candidate["polygon"]):
-            return {
-                "area_m2": candidate["area_m2"],
-                "source": candidate["source"],
-                "polygon": candidate["polygon"],
-            }
+    for candidates in (osm_candidates, ia_candidates, ms_candidates):
+        for c in candidates:
+            if _point_in_polygon(lon, lat, c["polygon"]):
+                return c
 
-    for candidate in _query_ms_buildings(bbox):
-        if _point_in_polygon(lon, lat, candidate["polygon"]):
-            return {"area_m2": candidate["area_m2"], "source": "ms-buildings", "polygon": candidate["polygon"]}
+    best, best_dist = None, ROOF_NEARBY_RADIUS_M
+    for candidates in (osm_candidates, ia_candidates, ms_candidates):
+        for c in candidates:
+            d = _distance_to_polygon_m(lon, lat, c["polygon"])
+            if d < best_dist:
+                best, best_dist = c, d
+        if best is not None:
+            # Une source plus prioritaire a déjà un candidat proche : on
+            # s'arrête là plutôt que de préférer une source moins fiable
+            # simplement parce qu'elle serait légèrement plus proche.
+            break
 
-    return None
+    return best
 
 
 # Miroirs Overpass accessibles depuis ce réseau (certains miroirs comme

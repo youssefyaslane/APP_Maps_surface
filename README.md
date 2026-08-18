@@ -133,6 +133,8 @@ Au démarrage, il réinitialise aussi les entreprises dont le toit IA/tracé a �
 2. **`ia_segments`** — toits détectés par IA ou tracés manuellement dans l'app
 3. **Microsoft** — dataset Global ML Building Footprints (détection IA générique)
 
+Le point GPS d'une entreprise (issu du scraper Google Maps) pointe souvent l'entrée ou le trottoir, pas le toit lui-même. Si aucun polygone ne contient exactement le point, un **rayon de rattrapage de 20m** (`ROOF_NEARBY_RADIUS_M` dans `app.py`) reprend le bâtiment le plus proche, même ordre de priorité des sources. Gain mesuré : +122 prospects sur la base existante (785 → 907).
+
 ### Synchronisation automatique
 
 Tracer un toit, le détecter par IA, ou le supprimer met à jour le tableau de bord **immédiatement**, sans relancer le script :
