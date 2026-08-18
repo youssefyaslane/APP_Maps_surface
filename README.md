@@ -58,7 +58,7 @@ Puis ouvrir [http://127.0.0.1:5000](http://127.0.0.1:5000) dans un navigateur.
 - Bouton **🔲 Sélectionner une zone (IA)** puis glisser un rectangle pour détecter automatiquement tous les toits de la zone (peut prendre de 30s à plusieurs minutes selon la taille, calcul CPU, sans limite de taille).
 - Bouton **✏️ Tracer un toit** puis cliquer les sommets du contour, **✓ Valider** pour enregistrer ou **✗ Annuler** pour effacer.
 - Cliquer sur un contour déjà détecté/tracé (rouge ou bleu) pour le supprimer (confirmation demandée).
-- Les entreprises importées (marqueurs orange) sont visibles/masquables via le contrôle de calques ; survolez un marqueur pour un aperçu rapide, ou cliquez dessus pour ouvrir le panneau détaillé (adresse, téléphone, email, site web, note, surface du toit et potentiel solaire).
+- Les entreprises importées (marqueurs verts si un toit est identifié, rouges sinon) sont visibles/masquables via le contrôle de calques ; survolez un marqueur pour un aperçu rapide, ou cliquez dessus pour ouvrir le panneau détaillé (adresse, téléphone, email, site web, note, surface du toit et potentiel solaire).
 - Bouton **☀️ Prospects solaires** pour ouvrir le tableau de bord commercial (voir plus bas).
 
 ### Importer des entreprises
@@ -209,8 +209,11 @@ Au clic, une grille de tuiles satellite Esri (haute résolution, zoom 19) est as
 
 - **Taille plausible** (15–4000 m²)
 - **Couleur moyenne du masque** : rejet de la végétation (teinte verte) et de l'asphalte (gris sombre peu saturé) — routes, parkings, jardins. Seuils ajustables en tête de `segmentation.py` (`VEGETATION_HUE_RANGE`, `ASPHALT_MAX_VALUE`…)
+- **Forme du contour** : un toit vu du ciel est compact et remplit bien son rectangle englobant. Deux ratios sans dimension écartent ce que la couleur ne distingue pas — la *compacité* (`4π·aire / périmètre²`) élimine les bandes étirées et les contours déchiquetés, la *rectangularité* (`aire / aire du rectangle englobant`) élimine les formes qui « flottent » dans leur rectangle, typiquement une route en diagonale. Seuils `MIN_SHAPE_COMPACTNESS` et `MIN_SHAPE_RECTANGULARITY` ; calibrés pour conserver les bâtiments allongés (hangars 5:1) et les toits en L
 
 Le masque retenu est converti en polygone géoréférencé et sa surface est calculée.
+
+Ces filtres ne s'appliquent qu'au **mode zone**, où le modèle échantillonne à l'aveugle. Le clic simple et le tracé manuel ne sont jamais filtrés : l'utilisateur y désigne lui-même le toit, sa forme ne doit pas être contestée.
 
 La densité de la grille de points (`points_per_side`) est le principal levier de compromis précision/vitesse sur CPU : plus dense détecte plus de petits toits mais ralentit fortement (le coût augmente au carré du paramètre) ; augmenter le niveau de zoom des tuiles seul n'améliore pas la détection sans densifier la grille en proportion, car il faut alors plus de tuiles pour couvrir la même zone.
 

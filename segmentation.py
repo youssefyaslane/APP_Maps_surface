@@ -34,6 +34,16 @@ VEGETATION_MIN_SATURATION = 0.15
 ASPHALT_MAX_SATURATION = 0.12  # gris quasi neutre
 ASPHALT_MAX_VALUE = 0.55  # sombre (asphalte), pour ne pas écarter les toits gris clair/béton
 
+# Filtres de forme (mode zone uniquement) : un toit vu du ciel est compact et
+# globalement rectangulaire, contrairement aux routes/allées (bandes étirées) et
+# à la végétation ou aux cours irrégulières (contours déchiquetés).
+# Compacité = 4*pi*aire / perimetre^2 : 0.79 pour un carré, ~0.42 pour un
+# rectangle 5:1, ~0.15 pour une bande de route.
+MIN_SHAPE_COMPACTNESS = 0.35
+# Rectangularité = aire / aire du rectangle englobant : ~1 pour un toit
+# rectangulaire, ~0.65 pour un toit en L, ~0.2 pour une route en diagonale.
+MIN_SHAPE_RECTANGULARITY = 0.45
+
 _predictor = None
 _mask_generator = None
 
@@ -207,6 +217,46 @@ def _is_vegetation_or_asphalt(image_np, mask):
     return False
 
 
+def _has_roof_like_shape(polygon_px):
+    """Écarte les formes géométriquement improbables pour un toit : bandes
+    étirées (routes, allées) et contours déchiquetés (végétation, cours).
+    Travaille en pixels, les ratios étant sans dimension.
+
+    Retourne (True, None) si la forme est plausible, sinon (False, motif).
+    """
+    n = len(polygon_px)
+    if n < 3:
+        return False, "polygone dégénéré"
+
+    area = 0.0
+    perimeter = 0.0
+    for i in range(n):
+        x1, y1 = polygon_px[i]
+        x2, y2 = polygon_px[(i + 1) % n]
+        area += x1 * y2 - x2 * y1
+        perimeter += math.hypot(x2 - x1, y2 - y1)
+    area = abs(area) / 2.0
+
+    if area <= 0 or perimeter <= 0:
+        return False, "polygone dégénéré"
+
+    compactness = 4 * math.pi * area / (perimeter**2)
+    if compactness < MIN_SHAPE_COMPACTNESS:
+        return False, f"forme trop étirée/déchiquetée (compacité {compactness:.2f})"
+
+    xs = [p[0] for p in polygon_px]
+    ys = [p[1] for p in polygon_px]
+    bbox_area = (max(xs) - min(xs)) * (max(ys) - min(ys))
+    if bbox_area <= 0:
+        return False, "polygone dégénéré"
+
+    rectangularity = area / bbox_area
+    if rectangularity < MIN_SHAPE_RECTANGULARITY:
+        return False, f"remplit mal son rectangle ({rectangularity:.2f})"
+
+    return True, None
+
+
 def _mask_to_polygon_px(mask):
     """Extrait le plus grand contour externe d'un masque booléen (approche sans cv2)."""
     import cv2
@@ -306,6 +356,10 @@ def segment_roofs_in_zone(south, west, north, east):
 
         polygon_px = _mask_to_polygon_px(ann["segmentation"])
         if not polygon_px or len(polygon_px) < 3:
+            continue
+
+        plausible, _reason = _has_roof_like_shape(polygon_px)
+        if not plausible:
             continue
 
         polygon_lonlat = [_pixel_to_lonlat(px, py, georef) for px, py in polygon_px]
