@@ -1240,6 +1240,72 @@ def api_prospects_csv():
     )
 
 
+def _query_unmatched_big_roofs(min_area_m2):
+    """Grands toits (Microsoft ou IA/tracé manuel) sans aucune entreprise déjà
+    reliée à proximité (ROOF_LOOKUP_RADIUS_DEG) : angles morts du flux normal,
+    qui part des entreprises pour chercher leur toit plutôt que l'inverse.
+    Utile pour repérer au Google Maps/scraper les prospects pas encore
+    présents dans companies malgré un grand bâtiment détecté."""
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT centroid_lon, centroid_lat, area_m2, 'ms-buildings' AS source
+                FROM ms_buildings m
+                WHERE area_m2 >= %(min_area)s
+                  AND NOT EXISTS (
+                    SELECT 1 FROM companies c
+                    WHERE c.lon BETWEEN m.centroid_lon - %(radius)s AND m.centroid_lon + %(radius)s
+                      AND c.lat BETWEEN m.centroid_lat - %(radius)s AND m.centroid_lat + %(radius)s
+                  )
+                UNION ALL
+                SELECT centroid_lon, centroid_lat, area_m2, source
+                FROM ia_segments s
+                WHERE area_m2 >= %(min_area)s
+                  AND NOT EXISTS (
+                    SELECT 1 FROM companies c
+                    WHERE c.lon BETWEEN s.centroid_lon - %(radius)s AND s.centroid_lon + %(radius)s
+                      AND c.lat BETWEEN s.centroid_lat - %(radius)s AND s.centroid_lat + %(radius)s
+                  )
+                ORDER BY area_m2 DESC
+                """,
+                {"min_area": min_area_m2, "radius": ROOF_LOOKUP_RADIUS_DEG},
+            )
+            rows = cur.fetchall()
+    finally:
+        pool.putconn(conn)
+    return [{"lon": r[0], "lat": r[1], "area_m2": r[2], "source": r[3]} for r in rows]
+
+
+@app.route("/api/unmatched_roofs.csv")
+def api_unmatched_roofs_csv():
+    """Export CSV des grands toits (Microsoft/IA) sans entreprise connue à
+    proximité - prospects potentiels absents du fichier scraper actuel."""
+    try:
+        min_area = request.args.get("min_area", default=2000.0, type=float)
+    except ValueError:
+        return jsonify({"error": "Paramètre min_area invalide"}), 400
+
+    roofs = _query_unmatched_big_roofs(min_area)
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, delimiter=";")
+    writer.writerow(
+        ["Latitude", "Longitude", "Surface toit (m²)", "Panneaux estimés", "Puissance (kWc)", "Source toit"]
+    )
+    for r in roofs:
+        n_panels, kwc = _estimate_solar(r["area_m2"])
+        writer.writerow([r["lat"], r["lon"], r["area_m2"], n_panels, kwc, r["source"]])
+
+    return Response(
+        "﻿" + buffer.getvalue(),
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=grands_toits_sans_entreprise.csv"},
+    )
+
+
 def _city_viewport_bbox(center, half_span_deg=0.012):
     lat, lon = center
     return (lat - half_span_deg, lon - half_span_deg, lat + half_span_deg, lon + half_span_deg)
