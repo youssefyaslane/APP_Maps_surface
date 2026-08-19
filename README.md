@@ -124,7 +124,7 @@ Le tableau de bord s'alimente d'un calcul en masse qui, pour chaque entreprise, 
 docker compose exec web python compute_solar_potential.py
 ```
 
-Sans argument, seules les entreprises pas encore calculées sont traitées — le script est **interruptible et reprend où il s'est arrêté**. Avec `--all`, tout est recalculé.
+Sans argument, seules les entreprises pas encore calculées sont traitées — le script est **interruptible et reprend où il s'est arrêté**. Avec `--all`, tout est recalculé. Avec `--retry-empty`, retraite aussi les entreprises déjà calculées mais sans toit trouvé : un échec réseau Overpass ponctuel pendant un gros calcul peut laisser une entreprise "sans toit" alors qu'un bâtiment OSM existe bien (visible au clic manuel sur la carte, qui retente l'appel) — beaucoup moins coûteux qu'un `--all` complet puisqu'il ne retraite que ce sous-ensemble.
 
 Au démarrage, il réinitialise aussi les entreprises dont le toit IA/tracé a été supprimé entre-temps, pour qu'elles soient réévaluées.
 

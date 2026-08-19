@@ -3,10 +3,12 @@ sous ses coordonnées (OSM, toits détectés/tracés, puis Microsoft), estime le
 nombre de panneaux installables et la puissance correspondante, et stocke le
 résultat dans la table `companies`.
 
-Usage: python compute_solar_potential.py [--all]
+Usage: python compute_solar_potential.py [--all|--retry-empty]
 
 Par défaut, ne traite que les entreprises pas encore calculées (reprise
-possible après interruption). Avec --all, recalcule tout.
+possible après interruption). Avec --all, recalcule tout. Avec --retry-empty,
+retraite aussi les entreprises déjà calculées mais sans toit trouvé (rattrape
+les échecs réseau Overpass ponctuels, sans le coût d'un --all complet).
 """
 import os
 import sys
@@ -79,11 +81,21 @@ def reset_orphans(conn):
     return len(orphans)
 
 
-def compute(recompute_all=False):
+def compute(recompute_all=False, retry_empty=False):
     flask_app._init_db()  # garantit la présence des colonnes de potentiel solaire
 
     conn = psycopg2.connect(DATABASE_URL)
-    where = "" if recompute_all else "WHERE solar_computed_at IS NULL"
+    if recompute_all:
+        where = ""
+    elif retry_empty:
+        # Reprend les entreprises déjà calculées mais sans toit trouvé : un
+        # échec réseau Overpass ponctuel pendant le calcul en masse peut
+        # laisser une entreprise "sans toit" alors qu'un bâtiment OSM existe
+        # bien (retrouvé au clic manuel plus tard via /api/company_roof, qui
+        # retente l'appel). Beaucoup moins coûteux qu'un --all complet.
+        where = "WHERE solar_computed_at IS NULL OR (solar_computed_at IS NOT NULL AND roof_area_m2 IS NULL)"
+    else:
+        where = "WHERE solar_computed_at IS NULL"
 
     reset_orphans(conn)
 
@@ -150,4 +162,7 @@ def compute(recompute_all=False):
 
 
 if __name__ == "__main__":
-    compute(recompute_all="--all" in sys.argv[1:])
+    compute(
+        recompute_all="--all" in sys.argv[1:],
+        retry_empty="--retry-empty" in sys.argv[1:],
+    )
