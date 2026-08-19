@@ -171,6 +171,7 @@ segmentation.py         Segmentation IA des bâtiments (extraction imagerie sate
 import_companies.py     Import en masse des entreprises depuis un/des export(s) .xlsx vers PostgreSQL
 import_ms_buildings.py  Import des empreintes de bâtiments Microsoft (.geojsonl) vers PostgreSQL
 compute_solar_potential.py  Calcul en masse du potentiel solaire des entreprises (alimente /dashboard)
+export_unmatched_roofs.py   Export CSV des grands toits sans entreprise connue à proximité
 templates/index.html    Page principale (carte Leaflet)
 templates/dashboard.html    Tableau de bord commercial (liste de prospects)
 static/app.js           Logique frontend (couches, tooltip, recherche, clic/zone/tracé IA, entreprises)
@@ -200,6 +201,14 @@ docker-compose.yml      Orchestration (web + PostgreSQL) + volumes persistants
 - `GET /api/prospects?min_kwc=&city=&category=&search=&limit=&offset=` — prospects avec leur potentiel solaire, triés par puissance décroissante, accompagnés des statistiques globales et de `total_filtered` (nombre total après filtres, pour la pagination). `limit` vaut 50 par défaut, `offset` 0
 - `GET /api/prospects.csv?...` — même liste au format CSV (séparateur `;`, BOM UTF-8 pour Excel), mêmes filtres
 - `GET /api/unmatched_roofs.csv?min_area=` — export CSV (lat, lon, surface, potentiel) des grands toits (Microsoft ou IA/tracé manuel, `min_area` en m², défaut 2000) sans aucune entreprise connue à proximité. Le flux normal part des entreprises pour chercher leur toit ; cette liste couvre l'angle mort inverse : de grands bâtiments détectés mais absents du fichier scraper. Sert de base pour rechercher manuellement (ou via un scraper Google Maps) quelle entreprise occupe ces coordonnées
+
+Équivalent en script, pour l'exécuter directement sans passer par le serveur HTTP :
+
+```bash
+docker compose exec web python export_unmatched_roofs.py [surface_min_m2] [chemin_sortie.csv]
+```
+
+Sans argument, exporte les toits ≥ 2000 m² vers `grands_toits_sans_entreprise.csv` (dans le conteneur — le récupérer avec `docker compose cp web:/app/grands_toits_sans_entreprise.csv .`).
 
 Les bâtiments OSM sont récupérés depuis Overpass, découpés en tuiles de grille (`TILE_SIZE_DEG`) pour permettre un cache fin et des requêtes parallèles. La surface de chaque bâtiment (OSM, détecté par IA, ou tracé manuellement) est calculée par projection équirectangulaire locale puis formule du lacet (shoelace).
 
