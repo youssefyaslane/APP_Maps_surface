@@ -9,6 +9,7 @@ import colorsys
 import io
 import math
 import os
+import zipfile
 
 import numpy as np
 import requests
@@ -24,7 +25,7 @@ ZOOM = 19  # niveau de zoom XYZ utilisé pour l'extraction (haute résolution)
 GRID_TILES = 3  # grille de 3x3 tuiles autour du point cliqué, pour avoir du contexte
 
 MIN_ROOF_AREA_M2 = 15.0
-MAX_ROOF_AREA_M2 = 4000.0
+MAX_ROOF_AREA_M2 = 50000.0
 
 # Filtre couleur pour écarter la végétation et les routes/asphalte du mode zone
 # (le modèle SAM n'a aucune notion sémantique de "toit", il segmente toute
@@ -148,15 +149,40 @@ def _pixel_to_lonlat(px, py, georef):
     return lon, lat
 
 
+def _lonlat_to_pixel(lon, lat, georef):
+    tl_lon, tl_lat = georef["top_left"]
+    br_lon, br_lat = georef["bottom_right"]
+    px = (lon - tl_lon) / (br_lon - tl_lon) * georef["width_px"]
+    py = (lat - tl_lat) / (br_lat - tl_lat) * georef["height_px"]
+    return px, py
+
+
+def _is_valid_checkpoint(path):
+    """Un .pt PyTorch est un zip : un fichier tronqué (téléchargement
+    interrompu) reste présent sur disque mais échoue ce test."""
+    try:
+        return zipfile.is_zipfile(path)
+    except OSError:
+        return False
+
+
 def _download_checkpoint():
     if os.path.exists(CHECKPOINT_PATH):
-        return
+        if _is_valid_checkpoint(CHECKPOINT_PATH):
+            return
+        os.remove(CHECKPOINT_PATH)
+
     resp = requests.get(CHECKPOINT_URL, timeout=60, stream=True)
     resp.raise_for_status()
     tmp_path = CHECKPOINT_PATH + ".tmp"
     with open(tmp_path, "wb") as f:
         for chunk in resp.iter_content(chunk_size=1 << 20):
             f.write(chunk)
+
+    if not _is_valid_checkpoint(tmp_path):
+        os.remove(tmp_path)
+        raise RuntimeError("Téléchargement du modèle MobileSAM corrompu (fichier tronqué), réessayez")
+
     os.replace(tmp_path, CHECKPOINT_PATH)
 
 
@@ -313,6 +339,47 @@ def segment_building_at(lon, lat):
         point_labels=input_label,
         multimask_output=True,
     )
+    best_mask = masks[int(np.argmax(scores))]
+
+    polygon_px = _mask_to_polygon_px(best_mask)
+    if not polygon_px or len(polygon_px) < 3:
+        return None
+
+    polygon_lonlat = [_pixel_to_lonlat(px, py, georef) for px, py in polygon_px]
+    area = _polygon_area_m2(polygon_lonlat)
+    if area <= 0:
+        return None
+
+    return {
+        "polygon": [[lon_, lat_] for lon_, lat_ in polygon_lonlat],
+        "area_m2": round(area, 1),
+    }
+
+
+def segment_building_in_box(south, west, north, east):
+    """[Expérimental] Segmente le bâtiment contenu dans la boîte donnée, plutôt
+    qu'un point unique cliqué. Objectif : lever l'ambiguïté d'échelle qu'un
+    simple point ne peut pas exprimer (ex: deux toits voisins fusionnés).
+
+    Retourne un dict {polygon: [[lon, lat], ...], area_m2: float} ou None.
+    """
+    # Contexte visuel autour de la boîte, pour que le modèle voie un peu au-delà
+    # (même logique que la grille 3x3 du mode clic).
+    pad_lat = (north - south) * 0.4
+    pad_lon = (east - west) * 0.4
+    composite, georef = _fetch_composite_for_bbox(
+        south - pad_lat, west - pad_lon, north + pad_lat, east + pad_lon
+    )
+
+    predictor = _get_predictor()
+    image_np = np.array(composite)
+    predictor.set_image(image_np)
+
+    x0, y0 = _lonlat_to_pixel(west, north, georef)
+    x1, y1 = _lonlat_to_pixel(east, south, georef)
+    input_box = np.array([min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)])
+
+    masks, scores, _ = predictor.predict(box=input_box, multimask_output=True)
     best_mask = masks[int(np.argmax(scores))]
 
     polygon_px = _mask_to_polygon_px(best_mask)
