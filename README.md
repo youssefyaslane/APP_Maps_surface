@@ -183,7 +183,7 @@ Le point GPS d'une entreprise (issu du scraper Google Maps) pointe souvent l'ent
 
 Tracer un toit, le détecter par IA, ou le supprimer met à jour le tableau de bord **immédiatement**, sans relancer le script :
 
-- **Ajout d'un toit** → les entreprises situées dessous reçoivent aussitôt leur potentiel solaire (sauf si elles sont déjà rattachées à un bâtiment OSM, prioritaire)
+- **Ajout d'un toit** → les entreprises situées dessous reçoivent aussitôt leur potentiel solaire (sauf si elles sont déjà rattachées à un bâtiment OSM, prioritaire). La recherche utilise le même rayon de rattrapage de 20m que `_find_roof_at_point` : le point GPS d'une entreprise tombe souvent juste à côté du toit (parfois à moins d'un mètre), et un test strict laisserait le marqueur rouge alors que la recherche en direct trouve bien le toit
 - **Suppression d'un toit** → les entreprises concernées sont recalculées sur-le-champ (un autre toit peut exister dessous : OSM, Microsoft…). La recherche des entreprises à recalculer utilise le même rayon de rattrapage de 20m que la liaison initiale, sinon une entreprise reliée par rattrapage (point hors du polygone) resterait associée à un toit déjà supprimé
 
 `compute_solar_potential.py` reste utile après un import en masse de nouvelles entreprises, ou pour un recalcul global.

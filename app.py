@@ -327,8 +327,13 @@ def _companies_inside_polygon(cur, polygon, only_computed=False, include_nearby=
 def _apply_solar_for_polygon(cur, polygon, area_m2, source):
     """Renseigne le potentiel solaire des entreprises situées sous ce toit
     fraîchement enregistré, pour qu'elles apparaissent aussitôt au tableau de
-    bord. Ne touche pas celles déjà rattachées à un bâtiment OSM (prioritaire)."""
-    affected = _companies_inside_polygon(cur, polygon)
+    bord. Ne touche pas celles déjà rattachées à un bâtiment OSM (prioritaire).
+
+    Utilise le même rayon de rattrapage que _find_roof_at_point : le point GPS
+    d'une entreprise tombe souvent juste à côté du toit (parfois à moins d'un
+    mètre), et un test strict laisserait alors le marqueur rouge alors que la
+    recherche en direct, elle, trouve bien le toit."""
+    affected = _companies_inside_polygon(cur, polygon, include_nearby=True)
     if not affected:
         return 0
 
