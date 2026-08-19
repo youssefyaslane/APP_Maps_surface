@@ -1059,9 +1059,7 @@ def api_company_roof():
     )
 
 
-def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=None):
-    """Entreprises avec leur potentiel solaire calculé, triées par puissance
-    installable décroissante (alimente le tableau de bord commercial)."""
+def _prospects_filter_clauses(min_kwc=None, city=None, category=None, search=None):
     clauses = ["solar_computed_at IS NOT NULL", "roof_area_m2 IS NOT NULL"]
     params = []
 
@@ -1078,6 +1076,26 @@ def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=
         clauses.append("(name ILIKE %s OR address ILIKE %s)")
         params.extend([f"%{search}%", f"%{search}%"])
 
+    return clauses, params
+
+
+def _count_prospects(min_kwc=None, city=None, category=None, search=None):
+    clauses, params = _prospects_filter_clauses(min_kwc, city, category, search)
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(f"SELECT count(*) FROM companies WHERE {' AND '.join(clauses)}", params)
+            return cur.fetchone()[0]
+    finally:
+        pool.putconn(conn)
+
+
+def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=None, offset=None):
+    """Entreprises avec leur potentiel solaire calculé, triées par puissance
+    installable décroissante (alimente le tableau de bord commercial)."""
+    clauses, params = _prospects_filter_clauses(min_kwc, city, category, search)
+
     sql = f"""
         SELECT id, name, category, address, city, phone, email, website,
                lon, lat, roof_area_m2, roof_source, solar_panels, solar_kwc
@@ -1088,6 +1106,9 @@ def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=
     if limit:
         sql += " LIMIT %s"
         params.append(limit)
+    if offset:
+        sql += " OFFSET %s"
+        params.append(offset)
 
     pool = _get_db_pool()
     conn = pool.getconn()
@@ -1149,18 +1170,28 @@ def _prospects_summary():
 def api_prospects():
     try:
         min_kwc = request.args.get("min_kwc", type=float)
-        limit = request.args.get("limit", type=int)  # sans limite par défaut
+        limit = request.args.get("limit", default=50, type=int)
+        offset = request.args.get("offset", default=0, type=int)
     except ValueError:
         return jsonify({"error": "Paramètres de filtre invalides"}), 400
 
-    prospects = _query_prospects(
+    filters = dict(
         min_kwc=min_kwc,
         city=request.args.get("city"),
         category=request.args.get("category"),
         search=request.args.get("search"),
-        limit=limit,
     )
-    return jsonify({"summary": _prospects_summary(), "prospects": prospects})
+    prospects = _query_prospects(**filters, limit=limit, offset=offset)
+    total_filtered = _count_prospects(**filters)
+    return jsonify(
+        {
+            "summary": _prospects_summary(),
+            "prospects": prospects,
+            "total_filtered": total_filtered,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
 
 
 @app.route("/api/prospects.csv")

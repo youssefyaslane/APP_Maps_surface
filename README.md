@@ -112,7 +112,8 @@ Accessible depuis la carte (bouton « ☀️ Prospects solaires ») ou directeme
 - Entreprises classées par **puissance installable décroissante** (kWc)
 - Statistiques globales : nombre de prospects, potentiel total, panneaux estimés, surface moyenne, et **cibles prioritaires** (≥ 100 kWc, seuil configurable via `BIG_PROSPECT_KWC` dans `app.py`) — cette dernière carte est cliquable pour filtrer directement
 - Filtres : recherche par nom/adresse, ville, catégorie, puissance minimale
-- **Export CSV** (séparateur `;`, BOM UTF-8 pour Excel) respectant les filtres actifs
+- **Pagination** (50 prospects par page, côté serveur via `limit`/`offset`) : le tableau reste léger même avec plus d'un millier de prospects. Un filtre ramène toujours à la page 1
+- **Export CSV** (séparateur `;`, BOM UTF-8 pour Excel) respectant les filtres actifs, mais **sans pagination** : l'export contient toujours l'ensemble des prospects filtrés
 - Lien « 🗺️ Voir » par prospect, qui recentre la carte sur son toit
 
 ### Calculer le potentiel solaire
@@ -196,7 +197,7 @@ docker-compose.yml      Orchestration (web + PostgreSQL) + volumes persistants
 - `GET /api/company_roof?lon=&lat=` — cherche le toit (OSM, toit détecté/tracé, ou bâtiment Microsoft) contenant ces coordonnées (test point-dans-polygone par ray casting sur les candidats dans un rayon de ~300m), retourne sa surface, sa source et son polygone
 - `GET /api/geocode?q=` — géocode un nom de lieu via Nominatim/OSM (restreint au Maroc), utilisé par la barre de recherche
 - `GET /dashboard` — tableau de bord commercial
-- `GET /api/prospects?min_kwc=&city=&category=&search=&limit=` — prospects avec leur potentiel solaire, triés par puissance décroissante, accompagnés des statistiques globales (tous les filtres sont optionnels ; sans `limit`, tous les prospects sont retournés)
+- `GET /api/prospects?min_kwc=&city=&category=&search=&limit=&offset=` — prospects avec leur potentiel solaire, triés par puissance décroissante, accompagnés des statistiques globales et de `total_filtered` (nombre total après filtres, pour la pagination). `limit` vaut 50 par défaut, `offset` 0
 - `GET /api/prospects.csv?...` — même liste au format CSV (séparateur `;`, BOM UTF-8 pour Excel), mêmes filtres
 
 Les bâtiments OSM sont récupérés depuis Overpass, découpés en tuiles de grille (`TILE_SIZE_DEG`) pour permettre un cache fin et des requêtes parallèles. La surface de chaque bâtiment (OSM, détecté par IA, ou tracé manuellement) est calculée par projection équirectangulaire locale puis formule du lacet (shoelace).

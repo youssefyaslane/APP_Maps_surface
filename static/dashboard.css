@@ -238,6 +238,46 @@ td.num strong {
   text-decoration: underline;
 }
 
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 18px 28px 36px;
+}
+
+.pagination button {
+  padding: 7px 12px;
+  border: 1px solid #cfd8dc;
+  border-radius: 6px;
+  background: #fff;
+  color: #37474f;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pagination button:hover:not(:disabled) {
+  border-color: #2e7d32;
+  color: #2e7d32;
+}
+
+.pagination button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.pagination .page-btn.active {
+  background: #2e7d32;
+  border-color: #2e7d32;
+  color: #fff;
+}
+
+.pagination .page-ellipsis {
+  padding: 0 4px;
+  color: #90a4ae;
+}
+
 .empty {
   text-align: center;
   padding: 40px;

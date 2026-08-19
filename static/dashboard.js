@@ -6,6 +6,10 @@ const categoryEl = document.getElementById("filter-category");
 const minKwcEl = document.getElementById("filter-min-kwc");
 const exportEl = document.getElementById("export-csv");
 const resultCountEl = document.getElementById("result-count");
+const paginationEl = document.getElementById("pagination");
+
+const PAGE_SIZE = 50;
+let currentPage = 1;
 
 function escapeHtml(str) {
   return String(str ?? "").replace(/[&<>"']/g, (c) => ({
@@ -70,6 +74,7 @@ function renderStats(summary) {
   statsEl.querySelectorAll(".stat-card.clickable").forEach((card) =>
     card.addEventListener("click", () => {
       minKwcEl.value = card.dataset.minKwc;
+      currentPage = 1;
       load();
     })
   );
@@ -111,10 +116,46 @@ function renderRows(prospects) {
     .join("");
 }
 
+function renderPagination(totalFiltered) {
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
+  if (totalPages <= 1) {
+    paginationEl.innerHTML = "";
+    return;
+  }
+
+  const goTo = (page) => {
+    currentPage = Math.min(Math.max(1, page), totalPages);
+    load();
+  };
+
+  // Fenêtre de numéros de page autour de la page courante (max 7 boutons).
+  const windowStart = Math.max(1, currentPage - 3);
+  const windowEnd = Math.min(totalPages, windowStart + 6);
+  let pageButtons = "";
+  for (let p = windowStart; p <= windowEnd; p++) {
+    pageButtons += `<button class="page-btn${p === currentPage ? " active" : ""}" data-page="${p}">${p}</button>`;
+  }
+
+  paginationEl.innerHTML = `
+    <button class="page-nav" data-page="${currentPage - 1}" ${currentPage === 1 ? "disabled" : ""}>‹ Précédent</button>
+    ${windowStart > 1 ? `<button class="page-btn" data-page="1">1</button><span class="page-ellipsis">…</span>` : ""}
+    ${pageButtons}
+    ${windowEnd < totalPages ? `<span class="page-ellipsis">…</span><button class="page-btn" data-page="${totalPages}">${totalPages}</button>` : ""}
+    <button class="page-nav" data-page="${currentPage + 1}" ${currentPage === totalPages ? "disabled" : ""}>Suivant ›</button>
+  `;
+
+  paginationEl.querySelectorAll("[data-page]").forEach((btn) =>
+    btn.addEventListener("click", () => goTo(Number(btn.dataset.page)))
+  );
+}
+
 async function load() {
   bodyEl.innerHTML = `<tr><td colspan="10" class="empty">Chargement...</td></tr>`;
   const params = currentFilters();
   exportEl.href = `/api/prospects.csv?${params.toString()}`;
+
+  params.set("limit", PAGE_SIZE);
+  params.set("offset", (currentPage - 1) * PAGE_SIZE);
 
   try {
     const resp = await fetch(`/api/prospects?${params.toString()}`);
@@ -122,28 +163,33 @@ async function load() {
     if (!resp.ok) throw new Error(data.error || "Erreur");
     renderStats(data.summary);
     renderRows(data.prospects);
+    renderPagination(data.total_filtered);
 
-    const n = data.prospects.length;
-    const filtered = [...params.keys()].length > 0;
-    resultCountEl.textContent = filtered
-      ? `${fmt(n)} prospect(s) affiché(s) sur ${fmt(data.summary.with_roof)}`
-      : `${fmt(n)} prospect(s)`;
+    const start = data.total_filtered === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+    const end = start + data.prospects.length - 1;
+    resultCountEl.textContent = `${fmt(start)}–${fmt(end)} sur ${fmt(data.total_filtered)} prospect(s)`;
   } catch (err) {
     bodyEl.innerHTML = `<tr><td colspan="10" class="empty">Erreur de chargement : ${escapeHtml(err.message)}</td></tr>`;
+    paginationEl.innerHTML = "";
   }
 }
 
-document.getElementById("apply-filters").addEventListener("click", load);
+function applyFiltersAndReload() {
+  currentPage = 1;
+  load();
+}
+
+document.getElementById("apply-filters").addEventListener("click", applyFiltersAndReload);
 document.getElementById("reset-filters").addEventListener("click", () => {
   searchEl.value = "";
   cityEl.value = "";
   categoryEl.value = "";
   minKwcEl.value = "";
-  load();
+  applyFiltersAndReload();
 });
 [searchEl, cityEl, categoryEl, minKwcEl].forEach((el) =>
   el.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") load();
+    if (e.key === "Enter") applyFiltersAndReload();
   })
 );
 
