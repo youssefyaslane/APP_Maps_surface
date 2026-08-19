@@ -4,6 +4,49 @@ Outil de prospection B2B pour la vente de panneaux solaires au Maroc : identifie
 
 L'application combine une **carte interactive** (surface des bâtiments au survol, à partir d'[OpenStreetMap](https://www.openstreetmap.org/), du dataset Microsoft, ou d'une détection IA par MobileSAM) et un **tableau de bord commercial** (`/dashboard`) listant les entreprises classées par puissance installable, avec export CSV pour les équipes de vente.
 
+## Aide-mémoire (commandes du quotidien)
+
+Toutes les commandes ci-dessous se lancent depuis `/home/y_yaslane/maps_surfface`, avec l'app déjà démarrée (`docker compose up -d`).
+
+**Démarrer / arrêter l'app**
+```bash
+docker compose up -d --build   # démarre (ou reconstruit après une modif du code)
+docker compose down            # arrête (les données restent dans les volumes)
+docker compose logs web -f     # suit les logs en direct
+```
+
+**Importer de nouvelles entreprises** (déposer le(s) fichier(s) `.xlsx` dans `Data_clients/` d'abord)
+```bash
+docker compose cp Data_clients/mon_fichier.xlsx web:/app/Data_clients/mon_fichier.xlsx
+docker compose exec web python import_companies.py
+```
+
+**Calculer le potentiel solaire** (à faire après chaque import)
+```bash
+docker compose exec web python compute_solar_potential.py               # seulement les nouvelles
+docker compose exec web python compute_solar_potential.py --retry-empty # retente les échecs réseau
+docker compose exec web python compute_solar_potential.py --all         # tout recalculer
+```
+
+**Exporter les grands toits sans entreprise connue** (angle mort à explorer manuellement)
+```bash
+docker compose exec web python export_unmatched_roofs.py
+docker compose cp web:/app/grands_toits_sans_entreprise.csv Data_clients/Grands_toits/grands_toits_sans_entreprise.csv
+```
+
+**Importer des bâtiments Microsoft** (une seule fois par zone, voir plus bas)
+```bash
+docker compose cp fichier.geojsonl web:/tmp/fichier.geojsonl
+docker compose exec web python import_ms_buildings.py /tmp/fichier.geojsonl
+```
+
+**Explorer la base**
+```bash
+docker compose exec db psql -U maps -d maps
+```
+
+Accès : carte sur [http://127.0.0.1:5000](http://127.0.0.1:5000), tableau de bord sur [http://127.0.0.1:5000/dashboard](http://127.0.0.1:5000/dashboard).
+
 ## Fonctionnalités
 
 - Carte du Maroc (Leaflet), avec bascule entre vue **Plan** (tuiles OpenStreetMap) et vue **Satellite** (imagerie Esri), zoom jusqu'au niveau 22
