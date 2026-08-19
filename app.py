@@ -206,7 +206,7 @@ def _delete_ia_segment(seg_id):
             polygon = row[0]
 
             cur.execute("DELETE FROM ia_segments WHERE id = %s", (seg_id,))
-            affected = _companies_inside_polygon(cur, polygon, only_computed=True)
+            affected = _companies_inside_polygon(cur, polygon, only_computed=True, include_nearby=True)
     finally:
         pool.putconn(conn)
 
@@ -266,8 +266,13 @@ def _estimate_solar(area_m2):
     return n_panels, round(n_panels * SOLAR_PANEL_POWER_W / 1000, 2)
 
 
-def _companies_inside_polygon(cur, polygon, only_computed=False):
-    """Entreprises dont les coordonnées tombent dans ce polygone."""
+def _companies_inside_polygon(cur, polygon, only_computed=False, include_nearby=False):
+    """Entreprises dont les coordonnées tombent dans ce polygone (ou à moins de
+    ROOF_NEARBY_RADIUS_M s'il faut retrouver celles liées via le rattrapage de
+    _find_roof_at_point, par ex. avant de supprimer un toit)."""
+    # Marge en degrés pour la présélection SQL, large pour couvrir le rayon de
+    # rattrapage en plus du polygone lui-même (~111km par degré de latitude).
+    margin = (ROOF_NEARBY_RADIUS_M / 111000.0) if include_nearby else 0.0
     lons = [p[0] for p in polygon]
     lats = [p[1] for p in polygon]
 
@@ -277,12 +282,17 @@ def _companies_inside_polygon(cur, polygon, only_computed=False):
         SELECT id, lon, lat FROM companies
         WHERE lon BETWEEN %s AND %s AND lat BETWEEN %s AND %s{extra}
         """,
-        (min(lons), max(lons), min(lats), max(lats)),
+        (min(lons) - margin, max(lons) + margin, min(lats) - margin, max(lats) + margin),
     )
+    rows = cur.fetchall()
+
+    if not include_nearby:
+        return [company_id for company_id, lon, lat in rows if _point_in_polygon(lon, lat, polygon)]
+
     return [
         company_id
-        for company_id, lon, lat in cur.fetchall()
-        if _point_in_polygon(lon, lat, polygon)
+        for company_id, lon, lat in rows
+        if _distance_to_polygon_m(lon, lat, polygon) <= ROOF_NEARBY_RADIUS_M
     ]
 
 
