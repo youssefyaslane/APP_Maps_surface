@@ -1,5 +1,6 @@
 """Exporte en CSV les grands toits (Microsoft ou IA/tracé manuel) sans aucune
-entreprise connue à proximité : coordonnées, surface et potentiel solaire.
+entreprise connue à proximité : zone (min/max latitude et longitude), surface
+et potentiel solaire.
 
 Usage: python export_unmatched_roofs.py [surface_min_m2] [chemin_sortie.csv]
 
@@ -24,11 +25,16 @@ def export_csv(min_area_m2, output_path):
     with open(output_path, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f, delimiter=";")
         writer.writerow(
-            ["Latitude", "Longitude", "Surface toit (m²)", "Panneaux estimés", "Puissance (kWc)", "Source toit"]
+            [
+                "Latitude min", "Latitude max", "Longitude min", "Longitude max",
+                "Surface toit (m²)", "Panneaux estimés", "Puissance (kWc)", "Source toit",
+            ]
         )
         for r in roofs:
             n_panels, kwc = app._estimate_solar(r["area_m2"])
-            writer.writerow([r["lat"], r["lon"], r["area_m2"], n_panels, kwc, r["source"]])
+            writer.writerow(
+                [r["min_lat"], r["max_lat"], r["min_lon"], r["max_lon"], r["area_m2"], n_panels, kwc, r["source"]]
+            )
 
     print(f"{len(roofs)} toit(s) >= {min_area_m2:.0f} m² exporté(s) vers {output_path}")
 

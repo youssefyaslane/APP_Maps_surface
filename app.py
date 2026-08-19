@@ -1307,10 +1307,18 @@ def _query_unmatched_big_roofs(min_area_m2):
 
     results = []
     for polygon, centroid_lon, centroid_lat, area_m2, source in rows:
-        # Point garanti à l'intérieur du bâtiment (le centroïde stocké peut
-        # tomber hors du polygone sur une forme en L/U, ~22% des cas mesurés).
-        lon, lat = _point_inside_polygon_guaranteed(polygon)
-        results.append({"lon": lon, "lat": lat, "area_m2": area_m2, "source": source})
+        lons = [p[0] for p in polygon]
+        lats = [p[1] for p in polygon]
+        results.append(
+            {
+                "min_lon": min(lons),
+                "max_lon": max(lons),
+                "min_lat": min(lats),
+                "max_lat": max(lats),
+                "area_m2": area_m2,
+                "source": source,
+            }
+        )
     return results
 
 
@@ -1328,11 +1336,16 @@ def api_unmatched_roofs_csv():
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";")
     writer.writerow(
-        ["Latitude", "Longitude", "Surface toit (m²)", "Panneaux estimés", "Puissance (kWc)", "Source toit"]
+        [
+            "Latitude min", "Latitude max", "Longitude min", "Longitude max",
+            "Surface toit (m²)", "Panneaux estimés", "Puissance (kWc)", "Source toit",
+        ]
     )
     for r in roofs:
         n_panels, kwc = _estimate_solar(r["area_m2"])
-        writer.writerow([r["lat"], r["lon"], r["area_m2"], n_panels, kwc, r["source"]])
+        writer.writerow(
+            [r["min_lat"], r["max_lat"], r["min_lon"], r["max_lon"], r["area_m2"], n_panels, kwc, r["source"]]
+        )
 
     return Response(
         "﻿" + buffer.getvalue(),
