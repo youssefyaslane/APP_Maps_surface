@@ -14,7 +14,7 @@ scraping_client/
 # Installeur pip telecharge, ne doit pas etre versionne
 get-pip.py
 
-# Images de test de segmentation (volumineuses, regenerables)
-static/zone_test*.png
-static/zone_test*.jpeg
-zone_test*.jpeg
+# Image satellite source du test (2,2 Mo, regenerable) — le masque, lui, est
+# versionne car la carte l'affiche en couche.
+static/zone_test.png
+/zone_test_mask.jpeg

@@ -150,6 +150,19 @@ const companiesLayer = L.geoJSON(null, {
 
 msBuildingsLayer.addTo(map);
 
+// --- Masque de test généré par un LLM ---------------------------------------
+// Emprise exacte du cadre soumis au modèle (composite Esri 4x4 tuiles, zoom 19,
+// 1024x1024 px, ~255 m de côté), pour superposer le masque au bon endroit et
+// juger visuellement de son alignement avec l'imagerie réelle.
+const TEST_ZONE_BOUNDS = L.latLngBounds(
+  [33.56886118255556, -7.591552734375],
+  [33.57114966444732, -7.58880615234375]
+);
+
+const testMaskLayer = L.imageOverlay("/static/zone_test_mask.jpeg", TEST_ZONE_BOUNDS, {
+  opacity: 0.55,
+});
+
 L.control
   .layers(
     { "Plan": streetLayer, "Satellite": satelliteLayer },
@@ -159,9 +172,17 @@ L.control
       "Toits tracés manuellement": manualTraceLayer,
       "Entreprises": companiesLayer,
       "Bâtiments IA (Microsoft)": msBuildingsLayer,
+      "Masque de test (LLM)": testMaskLayer,
     }
   )
   .addTo(map);
+
+document.getElementById("test-zone-btn").addEventListener("click", () => {
+  if (!map.hasLayer(testMaskLayer)) testMaskLayer.addTo(map);
+  map.fitBounds(TEST_ZONE_BOUNDS);
+  setStatus("Zone de test — masque du LLM en surimpression (décochez la couche pour comparer).");
+  setTimeout(() => setStatus(null), 4000);
+});
 
 const loadedMsBuildingIds = new Set();
 
