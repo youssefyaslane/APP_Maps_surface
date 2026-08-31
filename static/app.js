@@ -627,8 +627,59 @@ map.on("moveend zoomend", scheduleLoadBuildings);
 
 let segmentationInFlight = false;
 
-async function segmentAtLatLng(latlng) {
-  if (segmentationInFlight) return;
+// --- Segmentation interactive ---------------------------------------------
+// Le premier clic encode l'imagerie côté serveur (quelques secondes) ; les
+// clics suivants corrigent le contour en réutilisant cet encodage (~0,2s).
+// Clic gauche = « ça fait partie du toit », clic droit = « ça, non ».
+
+const segControlsEl = document.getElementById("seg-controls");
+const segAreaEl = document.getElementById("seg-area");
+const segConfirmBtn = document.getElementById("seg-confirm-btn");
+const segUndoBtn = document.getElementById("seg-undo-btn");
+const segCancelBtn = document.getElementById("seg-cancel-btn");
+
+const SEG_HINT = "Clic pour étendre le toit · clic droit pour retirer une zone · Enregistrer quand c'est bon.";
+
+let segSession = null; // { id, polygon, area_m2 }
+let segMarkers = [];
+
+const segPreviewLayer = L.polygon([], {
+  color: "#ff9100",
+  weight: 3,
+  dashArray: "6 4",
+  fillColor: "#ffb74d",
+  fillOpacity: 0.35,
+}).addTo(map);
+
+function segRender(data) {
+  segSession.polygon = data.polygon;
+  segSession.area_m2 = data.area_m2;
+  segPreviewLayer.setLatLngs(data.polygon.map(([lon, lat]) => [lat, lon]));
+  segAreaEl.textContent = `${data.area_m2.toLocaleString("fr-FR")} m²`;
+  segControlsEl.classList.remove("hidden");
+}
+
+function segAddMarker(latlng, positive) {
+  const marker = L.circleMarker(latlng, {
+    radius: 5,
+    weight: 2,
+    color: positive ? "#1b5e20" : "#b71c1c",
+    fillColor: positive ? "#4caf50" : "#ef5350",
+    fillOpacity: 0.95,
+  }).addTo(map);
+  segMarkers.push(marker);
+}
+
+function segClear() {
+  segSession = null;
+  segMarkers.forEach((m) => map.removeLayer(m));
+  segMarkers = [];
+  segPreviewLayer.setLatLngs([]);
+  segControlsEl.classList.add("hidden");
+  hintEl.textContent = DEFAULT_HINT;
+}
+
+async function segStart(latlng) {
   if (map.getZoom() < MIN_ZOOM_FOR_BUILDINGS) {
     setStatus("Zoomez davantage pour utiliser la détection IA.", true);
     setTimeout(() => setStatus(null), 2500);
@@ -636,35 +687,145 @@ async function segmentAtLatLng(latlng) {
   }
 
   segmentationInFlight = true;
-  const marker = L.circleMarker(latlng, { radius: 5, color: "#ff5252" }).addTo(map);
-  setStatus("Analyse IA de l'imagerie satellite en cours (peut prendre quelques secondes)...");
+  setStatus("Analyse IA de l'imagerie satellite (quelques secondes)...");
+  segAddMarker(latlng, true);
 
   try {
-    const params = new URLSearchParams({ lon: latlng.lng, lat: latlng.lat });
-    const resp = await fetch(`/api/segment?${params.toString()}`);
+    const resp = await fetch("/api/segment/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lon: latlng.lng, lat: latlng.lat }),
+    });
     const data = await resp.json();
 
     if (!resp.ok) {
       setStatus(data.error || "Échec de la détection IA", true);
       setTimeout(() => setStatus(null), 3000);
+      segClear();
       return;
     }
 
-    addIaFeatures({ type: "FeatureCollection", features: [data] });
-    setStatus(`Bâtiment détecté par IA : ${data.properties.area_m2.toLocaleString("fr-FR")} m²`);
-    setTimeout(() => setStatus(null), 4000);
+    segSession = { id: data.session_id };
+    segRender(data);
+    hintEl.textContent = SEG_HINT;
+    setStatus("Corrigez le contour si besoin, puis Enregistrer.");
+    setTimeout(() => setStatus(null), 3500);
   } catch (err) {
     setStatus("Erreur réseau pendant la détection IA", true);
     setTimeout(() => setStatus(null), 3000);
+    segClear();
   } finally {
-    map.removeLayer(marker);
     segmentationInFlight = false;
   }
 }
 
+async function segRefine(latlng, label) {
+  if (!segSession || segmentationInFlight) return;
+
+  segmentationInFlight = true;
+  segAddMarker(latlng, label === 1);
+
+  try {
+    const resp = await fetch("/api/segment/refine", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: segSession.id, lon: latlng.lng, lat: latlng.lat, label }),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      setStatus(data.error || "Échec de la correction", true);
+      setTimeout(() => setStatus(null), 3000);
+      return;
+    }
+    segRender(data);
+  } catch (err) {
+    setStatus("Erreur réseau pendant la correction", true);
+    setTimeout(() => setStatus(null), 2500);
+  } finally {
+    segmentationInFlight = false;
+  }
+}
+
+segUndoBtn.addEventListener("click", async () => {
+  if (!segSession || segmentationInFlight) return;
+  segmentationInFlight = true;
+  try {
+    const resp = await fetch("/api/segment/undo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: segSession.id }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      setStatus(data.error || "Plus rien à annuler", true);
+      setTimeout(() => setStatus(null), 2000);
+      return;
+    }
+    const last = segMarkers.pop();
+    if (last) map.removeLayer(last);
+    segRender(data);
+  } catch (err) {
+    setStatus("Erreur réseau", true);
+    setTimeout(() => setStatus(null), 2000);
+  } finally {
+    segmentationInFlight = false;
+  }
+});
+
+segConfirmBtn.addEventListener("click", async () => {
+  if (!segSession || segmentationInFlight) return;
+  segmentationInFlight = true;
+  setStatus("Enregistrement du toit...");
+  try {
+    const resp = await fetch("/api/segment/commit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: segSession.id, polygon: segSession.polygon }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      setStatus(data.error || "Échec de l'enregistrement", true);
+      setTimeout(() => setStatus(null), 3000);
+      return;
+    }
+    addIaFeatures({ type: "FeatureCollection", features: [data] });
+    setStatus(`Toit enregistré : ${data.properties.area_m2.toLocaleString("fr-FR")} m²`);
+    setTimeout(() => setStatus(null), 3500);
+    segClear();
+  } catch (err) {
+    setStatus("Erreur réseau pendant l'enregistrement", true);
+    setTimeout(() => setStatus(null), 3000);
+  } finally {
+    segmentationInFlight = false;
+  }
+});
+
+segCancelBtn.addEventListener("click", () => {
+  if (!segSession) return;
+  const sessionId = segSession.id;
+  segClear();
+  setStatus(null);
+  fetch("/api/segment/cancel", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId }),
+  }).catch(() => {}); // libération best-effort, la session expire de toute façon
+});
+
 map.on("click", (e) => {
   if (zoneSelectMode || pointsMode) return;
-  segmentAtLatLng(e.latlng);
+  if (segSession) {
+    segRefine(e.latlng, 1);
+  } else if (!segmentationInFlight) {
+    segStart(e.latlng);
+  }
+});
+
+map.on("contextmenu", (e) => {
+  if (zoneSelectMode || pointsMode || !segSession) return;
+  L.DomEvent.preventDefault(e);
+  segRefine(e.latlng, 0);
 });
 
 const DEFAULT_HINT = hintEl.textContent;

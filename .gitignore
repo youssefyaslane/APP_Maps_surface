@@ -7,3 +7,14 @@ server.log
 mobile_sam.pt
 Data_clients/
 .env
+
+# Scripts de scraping : contiennent des tokens API en clair + des fichiers clients
+scraping_client/
+
+# Installeur pip telecharge, ne doit pas etre versionne
+get-pip.py
+
+# Images de test de segmentation (volumineuses, regenerables)
+static/zone_test*.png
+static/zone_test*.jpeg
+zone_test*.jpeg

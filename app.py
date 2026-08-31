@@ -4,6 +4,7 @@ import io
 import json
 import math
 import os
+import secrets
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -911,6 +912,170 @@ def api_segment():
             "properties": {"area_m2": stored["area_m2"], "source": "ia-segmentation"},
         }
     )
+
+
+# --- Segmentation interactive -------------------------------------------
+# Le premier clic encode l'imagerie (~2,3s) ; les clics de correction
+# réutilisent cet embedding et ne coûtent que ~0,2s. L'état de la session
+# (points accumulés + masque courant) reste côté serveur : les logits sont
+# un tableau numpy, non sérialisable vers le navigateur.
+
+SEG_SESSION_TTL_SECONDS = 900
+SEG_SESSION_MAX = 50
+_seg_sessions = {}
+_seg_sessions_lock = threading.Lock()
+
+
+def _prune_seg_sessions(now):
+    """Purge les sessions expirées, puis les plus anciennes s'il en reste trop
+    (appelé sous _seg_sessions_lock)."""
+    expired = [k for k, v in _seg_sessions.items() if now - v["ts"] >= SEG_SESSION_TTL_SECONDS]
+    for k in expired:
+        del _seg_sessions[k]
+
+    while len(_seg_sessions) > SEG_SESSION_MAX:
+        oldest = min(_seg_sessions, key=lambda k: _seg_sessions[k]["ts"])
+        del _seg_sessions[oldest]
+
+
+def _get_seg_session(session_id):
+    with _seg_sessions_lock:
+        entry = _seg_sessions.get(session_id)
+        if entry is None or time.time() - entry["ts"] >= SEG_SESSION_TTL_SECONDS:
+            return None
+        entry["ts"] = time.time()
+        return entry["state"]
+
+
+def _seg_feature(result, session_id):
+    """Aperçu non enregistré : pas encore d'id en base, le toit n'est stocké
+    qu'à la validation."""
+    return {
+        "session_id": session_id,
+        "area_m2": result["area_m2"],
+        "polygon": result["polygon"],
+    }
+
+
+@app.route("/api/segment/start", methods=["POST"])
+def api_segment_start():
+    body = request.get_json(silent=True) or {}
+    try:
+        lon = float(body["lon"])
+        lat = float(body["lat"])
+    except (KeyError, ValueError, TypeError):
+        return jsonify({"error": "Paramètres lon/lat invalides"}), 400
+
+    if not _bbox_within_morocco((lat, lon, lat, lon)):
+        return jsonify({"error": "Point hors du Maroc"}), 400
+
+    try:
+        result, state = segmentation.segment_start(lon, lat)
+    except Exception as exc:
+        return jsonify({"error": f"Échec de la segmentation: {exc}"}), 502
+
+    if result is None:
+        return jsonify({"error": "Aucun bâtiment détecté à cet endroit"}), 404
+
+    session_id = secrets.token_urlsafe(12)
+    now = time.time()
+    with _seg_sessions_lock:
+        _prune_seg_sessions(now)
+        _seg_sessions[session_id] = {"state": state, "ts": now}
+
+    return jsonify(_seg_feature(result, session_id))
+
+
+@app.route("/api/segment/refine", methods=["POST"])
+def api_segment_refine():
+    body = request.get_json(silent=True) or {}
+    session_id = body.get("session_id")
+    try:
+        lon = float(body["lon"])
+        lat = float(body["lat"])
+    except (KeyError, ValueError, TypeError):
+        return jsonify({"error": "Paramètres lon/lat invalides"}), 400
+
+    # label 1 = étendre le toit, 0 = retirer cette zone
+    label = 0 if body.get("label") in (0, "0", False) else 1
+
+    state = _get_seg_session(session_id)
+    if state is None:
+        return jsonify({"error": "Session de segmentation expirée, recommencez"}), 404
+
+    try:
+        result = segmentation.segment_add_point(state, lon, lat, label)
+    except Exception as exc:
+        return jsonify({"error": f"Échec de la correction: {exc}"}), 502
+
+    if result is None:
+        return jsonify({"error": "Cette correction ne laisse aucune forme exploitable"}), 409
+
+    return jsonify(_seg_feature(result, session_id))
+
+
+@app.route("/api/segment/undo", methods=["POST"])
+def api_segment_undo():
+    body = request.get_json(silent=True) or {}
+    state = _get_seg_session(body.get("session_id"))
+    if state is None:
+        return jsonify({"error": "Session de segmentation expirée, recommencez"}), 404
+
+    try:
+        result = segmentation.segment_undo_point(state)
+    except Exception as exc:
+        return jsonify({"error": f"Échec de l'annulation: {exc}"}), 502
+
+    if result is None:
+        return jsonify({"error": "Plus rien à annuler"}), 409
+
+    return jsonify(_seg_feature(result, body.get("session_id")))
+
+
+@app.route("/api/segment/commit", methods=["POST"])
+def api_segment_commit():
+    """Enregistre en base le toit affiché en aperçu, une fois corrigé."""
+    body = request.get_json(silent=True) or {}
+    session_id = body.get("session_id")
+
+    state = _get_seg_session(session_id)
+    if state is None:
+        return jsonify({"error": "Session de segmentation expirée, recommencez"}), 404
+
+    raw_polygon = body.get("polygon")
+    if not raw_polygon or not isinstance(raw_polygon, list) or len(raw_polygon) < 3:
+        return jsonify({"error": "Contour invalide"}), 400
+
+    try:
+        polygon = [[float(p[0]), float(p[1])] for p in raw_polygon]
+    except (ValueError, TypeError, IndexError):
+        return jsonify({"error": "Contour invalide"}), 400
+
+    area = _polygon_area_m2(polygon)
+    if area <= 0:
+        return jsonify({"error": "Contour invalide"}), 400
+
+    stored = _store_ia_segment(polygon, round(area, 1))
+
+    with _seg_sessions_lock:
+        _seg_sessions.pop(session_id, None)
+
+    return jsonify(
+        {
+            "type": "Feature",
+            "id": stored["id"],
+            "geometry": {"type": "Polygon", "coordinates": [stored["polygon"] + [stored["polygon"][0]]]},
+            "properties": {"area_m2": stored["area_m2"], "source": stored["source"]},
+        }
+    )
+
+
+@app.route("/api/segment/cancel", methods=["POST"])
+def api_segment_cancel():
+    body = request.get_json(silent=True) or {}
+    with _seg_sessions_lock:
+        _seg_sessions.pop(body.get("session_id"), None)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/roof_manual", methods=["POST"])

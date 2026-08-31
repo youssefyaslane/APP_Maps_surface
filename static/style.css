@@ -310,3 +310,30 @@ html, body {
 #company-panel-content a:hover {
   text-decoration: underline;
 }
+
+/* Bandeau de la segmentation interactive : surface courante + actions.
+   Réutilise la mise en page de .points-controls (tracé manuel). */
+.seg-area {
+  display: flex;
+  align-items: center;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 20px;
+  background: rgba(20, 20, 20, 0.82);
+  color: #fff;
+  white-space: nowrap;
+}
+
+#seg-controls button {
+  background: #fff;
+  color: #1a1a1a;
+}
+
+/* Sélecteur volontairement aussi spécifique que la règle ci-dessus
+   (#id + élément), sinon le fond blanc générique l'emporterait et le
+   bouton se retrouverait en blanc sur blanc. */
+#seg-controls button#seg-confirm-btn {
+  background: #2e7d32;
+  color: #fff;
+}

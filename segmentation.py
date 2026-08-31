@@ -9,7 +9,9 @@ import colorsys
 import io
 import math
 import os
+import threading
 import zipfile
+from collections import OrderedDict
 
 import numpy as np
 import requests
@@ -102,6 +104,11 @@ def _fetch_composite_image(center_lon, center_lat, zoom=ZOOM, grid=GRID_TILES):
         "bottom_right": (bottom_right_lon, bottom_right_lat),
         "width_px": TILE_SIZE_PX * grid,
         "height_px": TILE_SIZE_PX * grid,
+        # Origine en coordonnées de tuiles : permet de convertir lon/lat -> pixel
+        # exactement (projection Mercator), sans l'approximation linéaire.
+        "tile_x0": center_tile_x - half,
+        "tile_y0": center_tile_y - half,
+        "zoom": zoom,
     }
     return composite, georef, (click_px_x, click_px_y)
 
@@ -135,6 +142,9 @@ def _fetch_composite_for_bbox(south, west, north, east, zoom=ZOOM):
         "bottom_right": (bottom_right_lon, bottom_right_lat),
         "width_px": TILE_SIZE_PX * grid_w,
         "height_px": TILE_SIZE_PX * grid_h,
+        "tile_x0": tile_x0,
+        "tile_y0": tile_y0,
+        "zoom": zoom,
     }
     return composite, georef
 
@@ -150,11 +160,179 @@ def _pixel_to_lonlat(px, py, georef):
 
 
 def _lonlat_to_pixel(lon, lat, georef):
+    """Position en pixels d'un point lon/lat dans le composite.
+
+    Passe par les coordonnées de tuiles quand l'origine est connue : la
+    latitude n'est pas linéaire en Mercator, une interpolation directe
+    décalerait le point. Repli linéaire pour les georef sans origine.
+    """
+    if "tile_x0" in georef:
+        x, y = _lonlat_to_tile_xy(lon, lat, georef["zoom"])
+        return (x - georef["tile_x0"]) * TILE_SIZE_PX, (y - georef["tile_y0"]) * TILE_SIZE_PX
+
     tl_lon, tl_lat = georef["top_left"]
     br_lon, br_lat = georef["bottom_right"]
     px = (lon - tl_lon) / (br_lon - tl_lon) * georef["width_px"]
     py = (lat - tl_lat) / (br_lat - tl_lat) * georef["height_px"]
     return px, py
+
+
+# --- Segmentation interactive -------------------------------------------
+# Le coût d'un clic est presque entièrement dans l'encodeur d'image
+# (~2,3s mesurées) ; le décodeur qui produit le masque à partir des points
+# ne coûte que ~0,2s. En gardant l'embedding en cache, les clics de
+# correction deviennent quasi instantanés.
+
+# ~4,2 Mo par entrée (features 1x256x64x64 en float32).
+EMBEDDING_CACHE_MAX = 16
+_embedding_cache = OrderedDict()
+_embedding_cache_lock = threading.Lock()
+
+# Le prédicteur est un singleton dont set_image() et predict() mutent
+# l'état interne : deux requêtes simultanées se mélangeraient les pinceaux.
+_predict_lock = threading.Lock()
+
+
+def _composite_tile_key(lon, lat, zoom=ZOOM, grid=GRID_TILES):
+    """Identité du composite : deux clics sur le même bâtiment retombent sur
+    la même clé et partagent donc le même embedding."""
+    cx, cy = _lonlat_to_tile_xy(lon, lat, zoom)
+    return (int(cx), int(cy), zoom, grid)
+
+
+def _get_embedding(lon, lat):
+    """Embedding de l'imagerie autour du point, calculé une fois puis réutilisé."""
+    key = _composite_tile_key(lon, lat)
+
+    with _embedding_cache_lock:
+        entry = _embedding_cache.get(key)
+        if entry is not None:
+            _embedding_cache.move_to_end(key)
+            return entry
+
+    composite, georef, _click = _fetch_composite_image(lon, lat)
+    predictor = _get_predictor()
+
+    with _predict_lock:
+        predictor.set_image(np.array(composite))
+        entry = {
+            "features": predictor.features.clone(),
+            "original_size": predictor.original_size,
+            "input_size": predictor.input_size,
+            "georef": georef,
+        }
+
+    with _embedding_cache_lock:
+        _embedding_cache[key] = entry
+        _embedding_cache.move_to_end(key)
+        while len(_embedding_cache) > EMBEDDING_CACHE_MAX:
+            _embedding_cache.popitem(last=False)
+
+    return entry
+
+
+def _predict_from_points(entry, points_px, labels, prev_logits=None):
+    """Masque produit par le décodeur à partir des points accumulés.
+
+    `prev_logits` réinjecte le masque de l'itération précédente : c'est ce
+    qui permet à une correction d'affiner le contour existant plutôt que de
+    repartir de zéro.
+    """
+    predictor = _get_predictor()
+
+    with _predict_lock:
+        predictor.features = entry["features"]
+        predictor.original_size = entry["original_size"]
+        predictor.input_size = entry["input_size"]
+        predictor.is_image_set = True
+
+        kwargs = {
+            "point_coords": np.array(points_px, dtype=np.float32),
+            "point_labels": np.array(labels, dtype=np.int32),
+        }
+        if prev_logits is None:
+            # Premier point : on laisse le modèle proposer plusieurs échelles.
+            kwargs["multimask_output"] = True
+        else:
+            # Correction : on affine un masque précis, pas la peine d'explorer.
+            kwargs["mask_input"] = prev_logits[None, :, :]
+            kwargs["multimask_output"] = False
+
+        masks, scores, logits = predictor.predict(**kwargs)
+
+    best = int(np.argmax(scores))
+    return masks[best], logits[best]
+
+
+def _mask_to_result(mask, georef):
+    """Masque booléen -> polygone géographique + surface, ou None."""
+    polygon_px = _mask_to_polygon_px(mask)
+    if not polygon_px or len(polygon_px) < 3:
+        return None
+
+    polygon_lonlat = [_pixel_to_lonlat(px, py, georef) for px, py in polygon_px]
+    area = _polygon_area_m2(polygon_lonlat)
+    if area <= 0:
+        return None
+
+    return {
+        "polygon": [[lon_, lat_] for lon_, lat_ in polygon_lonlat],
+        "area_m2": round(area, 1),
+    }
+
+
+def segment_start(lon, lat):
+    """Premier clic. Renvoie (résultat, état) — l'état doit être conservé pour
+    les corrections suivantes. Résultat None si rien n'a pu être segmenté."""
+    entry = _get_embedding(lon, lat)
+    px, py = _lonlat_to_pixel(lon, lat, entry["georef"])
+
+    mask, logits = _predict_from_points(entry, [[px, py]], [1])
+    result = _mask_to_result(mask, entry["georef"])
+
+    state = {
+        "anchor": (lon, lat),
+        "points_px": [[px, py]],
+        "labels": [1],
+        "logits": logits,
+    }
+    return result, state
+
+
+def segment_add_point(state, lon, lat, label):
+    """Clic de correction : label=1 pour étendre le toit, 0 pour retirer une
+    zone. Met `state` à jour et renvoie le nouveau résultat (ou None)."""
+    anchor_lon, anchor_lat = state["anchor"]
+    # Recalcule l'embedding si le cache l'a évincé entre-temps.
+    entry = _get_embedding(anchor_lon, anchor_lat)
+
+    px, py = _lonlat_to_pixel(lon, lat, entry["georef"])
+    state["points_px"].append([px, py])
+    state["labels"].append(1 if label else 0)
+
+    mask, logits = _predict_from_points(
+        entry, state["points_px"], state["labels"], state["logits"]
+    )
+    state["logits"] = logits
+    return _mask_to_result(mask, entry["georef"])
+
+
+def segment_undo_point(state):
+    """Annule le dernier point de correction. Renvoie le résultat recalculé,
+    ou None s'il ne reste que le point d'origine."""
+    if len(state["points_px"]) < 2:
+        return None
+
+    state["points_px"].pop()
+    state["labels"].pop()
+
+    entry = _get_embedding(*state["anchor"])
+    # Repart d'une prédiction propre : les logits courants intègrent le point
+    # qu'on vient justement de retirer.
+    state["logits"] = None
+    mask, logits = _predict_from_points(entry, state["points_px"], state["labels"])
+    state["logits"] = logits
+    return _mask_to_result(mask, entry["georef"])
 
 
 def _is_valid_checkpoint(path):
@@ -320,40 +498,14 @@ def _polygon_area_m2(coords_lonlat):
 
 
 def segment_building_at(lon, lat):
-    """Segmente le bâtiment/toit visible sous le point (lon, lat) cliqué sur la carte.
+    """Segmente le bâtiment/toit visible sous le point (lon, lat), en un seul
+    coup, sans possibilité de correction.
 
     Retourne un dict {polygon: [[lon, lat], ...], area_m2: float} ou None si
     aucune forme n'a pu être segmentée.
     """
-    composite, georef, (click_px_x, click_px_y) = _fetch_composite_image(lon, lat)
-
-    predictor = _get_predictor()
-    image_np = np.array(composite)
-    predictor.set_image(image_np)
-
-    input_point = np.array([[click_px_x, click_px_y]])
-    input_label = np.array([1])
-
-    masks, scores, _ = predictor.predict(
-        point_coords=input_point,
-        point_labels=input_label,
-        multimask_output=True,
-    )
-    best_mask = masks[int(np.argmax(scores))]
-
-    polygon_px = _mask_to_polygon_px(best_mask)
-    if not polygon_px or len(polygon_px) < 3:
-        return None
-
-    polygon_lonlat = [_pixel_to_lonlat(px, py, georef) for px, py in polygon_px]
-    area = _polygon_area_m2(polygon_lonlat)
-    if area <= 0:
-        return None
-
-    return {
-        "polygon": [[lon_, lat_] for lon_, lat_ in polygon_lonlat],
-        "area_m2": round(area, 1),
-    }
+    result, _state = segment_start(lon, lat)
+    return result
 
 
 def segment_building_in_box(south, west, north, east):
