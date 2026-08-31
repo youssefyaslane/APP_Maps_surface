@@ -102,12 +102,17 @@ def _init_db():
                     ADD COLUMN IF NOT EXISTS roof_source TEXT,
                     ADD COLUMN IF NOT EXISTS solar_panels INTEGER,
                     ADD COLUMN IF NOT EXISTS solar_kwc DOUBLE PRECISION,
-                    ADD COLUMN IF NOT EXISTS solar_computed_at TIMESTAMPTZ
+                    ADD COLUMN IF NOT EXISTS solar_computed_at TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS roof_key TEXT
                 """
             )
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_companies_solar_kwc "
                 "ON companies (solar_kwc DESC NULLS LAST)"
+            )
+            # Sert au regroupement des entreprises partageant un même toit.
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_companies_roof_key ON companies (roof_key)"
             )
             cur.execute(
                 """
@@ -196,7 +201,7 @@ def _store_ia_segment(polygon, area_m2, source="ia-segmentation"):
                 (json.dumps(polygon), area_m2, lon, lat, source),
             )
             new_id = cur.fetchone()[0]
-            _apply_solar_for_polygon(cur, polygon, area_m2, source)
+            _apply_solar_for_polygon(cur, polygon, area_m2, source, f"ia:{new_id}")
             return {"id": new_id, "polygon": polygon, "area_m2": area_m2, "source": source}
     finally:
         pool.putconn(conn)
@@ -260,6 +265,7 @@ def _recompute_solar_for_companies(company_ids):
         roof = _find_roof_at_point(lon, lat)
         area = roof["area_m2"] if roof else None
         source = roof["source"] if roof else None
+        roof_key = roof["roof_key"] if roof else None
         n_panels, kwc = _estimate_solar(area)
 
         conn = pool.getconn()
@@ -270,12 +276,13 @@ def _recompute_solar_for_companies(company_ids):
                     UPDATE companies SET
                         roof_area_m2 = %s,
                         roof_source = %s,
+                        roof_key = %s,
                         solar_panels = %s,
                         solar_kwc = %s,
                         solar_computed_at = now()
                     WHERE id = %s
                     """,
-                    (area, source, n_panels, kwc, company_id),
+                    (area, source, roof_key, n_panels, kwc, company_id),
                 )
         finally:
             pool.putconn(conn)
@@ -325,7 +332,7 @@ def _companies_inside_polygon(cur, polygon, only_computed=False, include_nearby=
     ]
 
 
-def _apply_solar_for_polygon(cur, polygon, area_m2, source):
+def _apply_solar_for_polygon(cur, polygon, area_m2, source, roof_key=None):
     """Renseigne le potentiel solaire des entreprises situées sous ce toit
     fraîchement enregistré, pour qu'elles apparaissent aussitôt au tableau de
     bord. Ne touche pas celles déjà rattachées à un bâtiment OSM (prioritaire).
@@ -344,12 +351,13 @@ def _apply_solar_for_polygon(cur, polygon, area_m2, source):
         UPDATE companies SET
             roof_area_m2 = %s,
             roof_source = %s,
+            roof_key = %s,
             solar_panels = %s,
             solar_kwc = %s,
             solar_computed_at = now()
         WHERE id = ANY(%s) AND (roof_source IS DISTINCT FROM 'osm')
         """,
-        (area_m2, source, n_panels, kwc, affected),
+        (area_m2, source, roof_key, n_panels, kwc, affected),
     )
     return cur.rowcount
 
@@ -506,16 +514,25 @@ def _find_roof_at_point(lon, lat):
         lon + ROOF_LOOKUP_RADIUS_DEG,
     )
 
+    # roof_key identifie le polygone lui-même, pas seulement sa surface : sans
+    # lui, deux entreprises sous le même toit deviennent deux lignes qui ne
+    # savent pas qu'elles parlent du même bâtiment, et le potentiel total est
+    # compté deux fois.
     osm_candidates = [
-        {"area_m2": f["properties"]["area_m2"], "source": "osm", "polygon": f["geometry"]["coordinates"][0]}
+        {
+            "area_m2": f["properties"]["area_m2"],
+            "source": "osm",
+            "polygon": f["geometry"]["coordinates"][0],
+            "roof_key": f"osm:{f['id']}",
+        }
         for f in _cached_osm_buildings_at(bbox)
     ]
     ia_candidates = [
-        {"area_m2": c["area_m2"], "source": c["source"], "polygon": c["polygon"]}
+        {"area_m2": c["area_m2"], "source": c["source"], "polygon": c["polygon"], "roof_key": f"ia:{c['id']}"}
         for c in _query_ia_segments(bbox)
     ]
     ms_candidates = [
-        {"area_m2": c["area_m2"], "source": "ms-buildings", "polygon": c["polygon"]}
+        {"area_m2": c["area_m2"], "source": "ms-buildings", "polygon": c["polygon"], "roof_key": f"ms:{c['id']}"}
         for c in _query_ms_buildings(bbox)
     ]
 
@@ -562,7 +579,10 @@ MOROCCO_BBOX = (27.6, -13.2, 35.95, -0.9)
 # pans/zooms qui restent dans la même tuile ne re-sollicitent pas Overpass.
 # Doublement mémoire (accès rapide) + disque (survit aux redémarrages).
 _cache = {}
-CACHE_TTL_SECONDS = 1800
+# Les empreintes de bâtiments ne bougent pas d'une semaine à l'autre. Un TTL de
+# 30 min obligeait un recalcul en masse (~1h45 sur 1600 entreprises) à
+# re-télécharger plusieurs fois les mêmes tuiles Overpass.
+CACHE_TTL_SECONDS = 7 * 24 * 3600
 TILE_SIZE_DEG = 0.03
 
 
@@ -1267,21 +1287,24 @@ def api_company_roof():
     )
 
 
-def _prospects_filter_clauses(min_kwc=None, city=None, category=None, search=None):
-    clauses = ["solar_computed_at IS NOT NULL", "roof_area_m2 IS NOT NULL"]
+def _prospects_filter_clauses(min_kwc=None, city=None, category=None, search=None, alias=""):
+    """Clauses de filtrage du tableau de bord. `alias` préfixe les colonnes
+    ("c." par exemple) quand la requête joint une autre table."""
+    p = f"{alias}." if alias else ""
+    clauses = [f"{p}solar_computed_at IS NOT NULL", f"{p}roof_area_m2 IS NOT NULL"]
     params = []
 
     if min_kwc is not None:
-        clauses.append("solar_kwc >= %s")
+        clauses.append(f"{p}solar_kwc >= %s")
         params.append(min_kwc)
     if city:
-        clauses.append("city ILIKE %s")
+        clauses.append(f"{p}city ILIKE %s")
         params.append(f"%{city}%")
     if category:
-        clauses.append("category ILIKE %s")
+        clauses.append(f"{p}category ILIKE %s")
         params.append(f"%{category}%")
     if search:
-        clauses.append("(name ILIKE %s OR address ILIKE %s)")
+        clauses.append(f"({p}name ILIKE %s OR {p}address ILIKE %s)")
         params.extend([f"%{search}%", f"%{search}%"])
 
     return clauses, params
@@ -1302,14 +1325,28 @@ def _count_prospects(min_kwc=None, city=None, category=None, search=None):
 def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=None, offset=None):
     """Entreprises avec leur potentiel solaire calculé, triées par puissance
     installable décroissante (alimente le tableau de bord commercial)."""
-    clauses, params = _prospects_filter_clauses(min_kwc, city, category, search)
+    clauses, params = _prospects_filter_clauses(min_kwc, city, category, search, alias="c")
 
+    # shared_count : nombre d'entreprises rattachées au même toit. Un toit ne
+    # s'équipe qu'une fois, donc un prospect qui partage le sien avec 22 autres
+    # ne représente pas la surface entière.
+    # Le décompte se fait sur TOUTE la table, pas sur le résultat filtré : sinon
+    # un filtre par ville masquerait les colocataires des autres villes et
+    # afficherait un toit partagé comme exclusif.
     sql = f"""
-        SELECT id, name, category, address, city, phone, email, website,
-               lon, lat, roof_area_m2, roof_source, solar_panels, solar_kwc
-        FROM companies
+        WITH shared AS (
+            SELECT roof_key, count(*) AS n
+            FROM companies
+            WHERE roof_key IS NOT NULL
+            GROUP BY roof_key
+        )
+        SELECT c.id, c.name, c.category, c.address, c.city, c.phone, c.email, c.website,
+               c.lon, c.lat, c.roof_area_m2, c.roof_source, c.solar_panels, c.solar_kwc,
+               COALESCE(s.n, 1) AS shared_count
+        FROM companies c
+        LEFT JOIN shared s ON s.roof_key = c.roof_key
         WHERE {' AND '.join(clauses)}
-        ORDER BY solar_kwc DESC NULLS LAST
+        ORDER BY c.solar_kwc DESC NULLS LAST
     """
     if limit:
         sql += " LIMIT %s"
@@ -1330,6 +1367,7 @@ def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=
     columns = [
         "id", "name", "category", "address", "city", "phone", "email", "website",
         "lon", "lat", "roof_area_m2", "roof_source", "solar_panels", "solar_kwc",
+        "shared_count",
     ]
     return [dict(zip(columns, row)) for row in rows]
 
@@ -1350,15 +1388,30 @@ def _prospects_summary():
                     count(*),
                     count(*) FILTER (WHERE solar_computed_at IS NOT NULL),
                     count(*) FILTER (WHERE roof_area_m2 IS NOT NULL),
-                    COALESCE(sum(solar_kwc), 0),
-                    COALESCE(sum(solar_panels), 0),
                     COALESCE(avg(roof_area_m2) FILTER (WHERE roof_area_m2 IS NOT NULL), 0),
                     count(*) FILTER (WHERE solar_kwc >= %s)
                 FROM companies
                 """,
                 (BIG_PROSPECT_KWC,),
             )
-            total, computed, with_roof, total_kwc, total_panels, avg_area, big = cur.fetchone()
+            total, computed, with_roof, avg_area, big = cur.fetchone()
+
+            # Un toit ne s'equipe qu'une fois : sommer par entreprise comptait
+            # plusieurs fois les batiments partages (mesure : ~17% de gonflement).
+            # On somme donc sur les toits distincts.
+            cur.execute(
+                """
+                SELECT COALESCE(sum(kwc), 0), COALESCE(sum(panels), 0), count(*)
+                FROM (
+                    SELECT DISTINCT ON (COALESCE(roof_key, 'company:' || id))
+                           solar_kwc AS kwc, solar_panels AS panels
+                    FROM companies
+                    WHERE roof_area_m2 IS NOT NULL
+                    ORDER BY COALESCE(roof_key, 'company:' || id), solar_kwc DESC NULLS LAST
+                ) t
+                """
+            )
+            total_kwc, total_panels, distinct_roofs = cur.fetchone()
     finally:
         pool.putconn(conn)
 
@@ -1366,6 +1419,8 @@ def _prospects_summary():
         "total_companies": total,
         "computed": computed,
         "with_roof": with_roof,
+        "distinct_roofs": distinct_roofs,
+        "shared_companies": with_roof - distinct_roofs,
         "total_kwc": round(float(total_kwc), 1),
         "total_panels": int(total_panels),
         "avg_roof_area_m2": round(float(avg_area), 1),
@@ -1417,15 +1472,17 @@ def api_prospects_csv():
     writer.writerow(
         [
             "Nom", "Catégorie", "Adresse", "Ville", "Téléphone", "Email", "Site web",
-            "Surface toit (m²)", "Source toit", "Panneaux estimés", "Puissance (kWc)",
-            "Latitude", "Longitude",
+            "Surface toit (m²)", "Source toit", "Toit partagé", "Entreprises sur ce toit",
+            "Panneaux estimés", "Puissance (kWc)", "Latitude", "Longitude",
         ]
     )
     for p in prospects:
+        shared = p.get("shared_count", 1) or 1
         writer.writerow(
             [
                 p["name"], p["category"], p["address"], p["city"], p["phone"],
                 p["email"], p["website"], p["roof_area_m2"], p["roof_source"],
+                "oui" if shared > 1 else "non", shared,
                 p["solar_panels"], p["solar_kwc"], p["lat"], p["lon"],
             ]
         )

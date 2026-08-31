@@ -50,6 +50,13 @@ function renderStats(summary) {
   const threshold = summary.big_prospect_threshold;
   const cards = [
     [fmt(summary.with_roof), "Prospects avec toit identifié", null],
+    [
+      fmt(summary.distinct_roofs),
+      summary.shared_companies
+        ? `Toits distincts (${fmt(summary.shared_companies)} en partage)`
+        : "Toits distincts",
+      null,
+    ],
     [`${fmt(summary.total_kwc, 1)} kWc`, "Potentiel total installable", null],
     [fmt(summary.total_panels), "Panneaux estimés au total", null],
     [`${fmt(summary.avg_roof_area_m2, 0)} m²`, "Surface moyenne par toit", null],
@@ -82,7 +89,7 @@ function renderStats(summary) {
 
 function renderRows(prospects) {
   if (!prospects.length) {
-    bodyEl.innerHTML = `<tr><td colspan="10" class="empty">
+    bodyEl.innerHTML = `<tr><td colspan="11" class="empty">
       Aucun prospect ne correspond. Lancez <code>python compute_solar_potential.py</code>
       pour calculer le potentiel solaire des entreprises.
     </td></tr>`;
@@ -96,8 +103,19 @@ function renderRows(prospects) {
         p.website ? `<a href="${escapeHtml(p.website)}" target="_blank" rel="noopener">🌐 Site</a>` : "",
       ].join("");
 
+      // Un toit ne s'équipe qu'une fois : si plusieurs entreprises y sont
+      // rattachées, la surface affichée n'est pas disponible pour ce prospect seul.
+      const isShared = p.shared_count > 1;
+      const roofStatus = isShared
+        ? `<span class="roof-shared" title="Ce toit est aussi rattaché à ${
+            p.shared_count - 1
+          } autre(s) entreprise(s) — la surface n'est pas disponible pour ce seul prospect">⚠ Partagé × ${
+            p.shared_count
+          }</span>`
+        : `<span class="roof-exclusive" title="Aucune autre entreprise connue sur ce toit">✓ Exclusif</span>`;
+
       return `
-        <tr>
+        <tr${isShared ? ' class="is-shared"' : ""}>
           <td class="rank">${idx + 1}</td>
           <td>
             <span class="company-name">${escapeHtml(p.name)}</span>
@@ -109,6 +127,7 @@ function renderRows(prospects) {
           <td class="num">${fmt(p.solar_panels)}</td>
           <td class="num"><strong>${fmt(p.solar_kwc, 1)} kWc</strong></td>
           <td>${sourceBadge(p.roof_source)}</td>
+          <td class="roof-status">${roofStatus}</td>
           <td class="contact">${contact || "—"}</td>
           <td><a class="map-link" href="/?lat=${p.lat}&lon=${p.lon}" title="Voir sur la carte">🗺️ Voir</a></td>
         </tr>`;
@@ -150,7 +169,7 @@ function renderPagination(totalFiltered) {
 }
 
 async function load() {
-  bodyEl.innerHTML = `<tr><td colspan="10" class="empty">Chargement...</td></tr>`;
+  bodyEl.innerHTML = `<tr><td colspan="11" class="empty">Chargement...</td></tr>`;
   const params = currentFilters();
   exportEl.href = `/api/prospects.csv?${params.toString()}`;
 
@@ -169,7 +188,7 @@ async function load() {
     const end = start + data.prospects.length - 1;
     resultCountEl.textContent = `${fmt(start)}–${fmt(end)} sur ${fmt(data.total_filtered)} prospect(s)`;
   } catch (err) {
-    bodyEl.innerHTML = `<tr><td colspan="10" class="empty">Erreur de chargement : ${escapeHtml(err.message)}</td></tr>`;
+    bodyEl.innerHTML = `<tr><td colspan="11" class="empty">Erreur de chargement : ${escapeHtml(err.message)}</td></tr>`;
     paginationEl.innerHTML = "";
   }
 }

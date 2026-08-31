@@ -283,3 +283,31 @@ td.num strong {
   padding: 40px;
   color: #90a4ae;
 }
+
+/* Colonne « Toit » : un toit ne s'équipe qu'une fois, donc un prospect qui
+   partage le sien ne dispose pas de la surface affichée. */
+.roof-status { white-space: nowrap; }
+
+.roof-shared,
+.roof-exclusive {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.roof-shared {
+  color: #8a4b00;
+  background: #ffe9c7;
+}
+
+.roof-exclusive {
+  color: #2e6b3e;
+  background: #ddebe0;
+}
+
+tr.is-shared td {
+  background: #fffaf2;
+}

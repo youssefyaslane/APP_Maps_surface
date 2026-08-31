@@ -70,7 +70,7 @@ def reset_orphans(conn):
             cur.execute(
                 """
                 UPDATE companies SET
-                    roof_area_m2 = NULL, roof_source = NULL,
+                    roof_area_m2 = NULL, roof_source = NULL, roof_key = NULL,
                     solar_panels = NULL, solar_kwc = NULL, solar_computed_at = NULL
                 WHERE id = ANY(%s)
                 """,
@@ -130,6 +130,7 @@ def compute(recompute_all=False, retry_empty=False):
                 idx += 1
                 area = roof["area_m2"] if roof else None
                 source = roof["source"] if roof else None
+                roof_key = roof["roof_key"] if roof else None
                 n_panels, kwc = estimate_solar(area)
                 if roof:
                     found += 1
@@ -140,12 +141,13 @@ def compute(recompute_all=False, retry_empty=False):
                         UPDATE companies SET
                             roof_area_m2 = %s,
                             roof_source = %s,
+                            roof_key = %s,
                             solar_panels = %s,
                             solar_kwc = %s,
                             solar_computed_at = now()
                         WHERE id = %s
                         """,
-                        (area, source, n_panels, kwc, company_id),
+                        (area, source, roof_key, n_panels, kwc, company_id),
                     )
 
             elapsed = time.time() - started
