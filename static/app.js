@@ -159,8 +159,46 @@ const TEST_ZONE_BOUNDS = L.latLngBounds(
   [33.57114966444732, -7.58880615234375]
 );
 
-const testMaskLayer = L.imageOverlay("/static/zone_test_mask.jpeg", TEST_ZONE_BOUNDS, {
-  opacity: 0.55,
+// Masque vectorisé en polygones, pour qu'il se survole et se mesure comme les
+// couches OSM et Microsoft plutôt que d'être une image plaquée.
+const testMaskLayer = L.geoJSON(null, {
+  style: () => ({
+    color: "#e53935",
+    weight: 1,
+    fillColor: "#ef5350",
+    fillOpacity: 0.45,
+  }),
+  onEachFeature: (feature, layer) => {
+    layer.on({
+      mouseover: (e) => {
+        e.target.setStyle({ fillOpacity: 0.75, weight: 2, color: "#ffb300" });
+        showTooltip(e, { ...feature.properties, name: "Emprise détectée par LLM" });
+      },
+      mousemove: (e) => moveTooltip(e),
+      mouseout: (e) => {
+        testMaskLayer.resetStyle(e.target);
+        hideTooltip();
+      },
+    });
+  },
+});
+
+let testMaskLoaded = false;
+
+async function loadTestMask() {
+  if (testMaskLoaded) return;
+  try {
+    const resp = await fetch("/static/zone_test_mask.geojson");
+    if (!resp.ok) return;
+    testMaskLayer.addData(await resp.json());
+    testMaskLoaded = true;
+  } catch (err) {
+    // couche de test, échec non bloquant
+  }
+}
+
+map.on("overlayadd", (e) => {
+  if (e.layer === testMaskLayer) loadTestMask();
 });
 
 L.control
@@ -172,15 +210,16 @@ L.control
       "Toits tracés manuellement": manualTraceLayer,
       "Entreprises": companiesLayer,
       "Bâtiments IA (Microsoft)": msBuildingsLayer,
-      "Masque de test (LLM)": testMaskLayer,
+      "Emprises LLM (test)": testMaskLayer,
     }
   )
   .addTo(map);
 
-document.getElementById("test-zone-btn").addEventListener("click", () => {
+document.getElementById("test-zone-btn").addEventListener("click", async () => {
+  await loadTestMask();
   if (!map.hasLayer(testMaskLayer)) testMaskLayer.addTo(map);
   map.fitBounds(TEST_ZONE_BOUNDS);
-  setStatus("Zone de test — masque du LLM en surimpression (décochez la couche pour comparer).");
+  setStatus("Zone de test — survolez une emprise LLM pour sa surface et son potentiel.");
   setTimeout(() => setStatus(null), 4000);
 });
 
