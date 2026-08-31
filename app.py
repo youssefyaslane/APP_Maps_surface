@@ -1387,31 +1387,33 @@ def _prospects_summary():
                 SELECT
                     count(*),
                     count(*) FILTER (WHERE solar_computed_at IS NOT NULL),
-                    count(*) FILTER (WHERE roof_area_m2 IS NOT NULL),
-                    COALESCE(avg(roof_area_m2) FILTER (WHERE roof_area_m2 IS NOT NULL), 0),
-                    count(*) FILTER (WHERE solar_kwc >= %s)
+                    count(*) FILTER (WHERE roof_area_m2 IS NOT NULL)
                 FROM companies
-                """,
-                (BIG_PROSPECT_KWC,),
+                """
             )
-            total, computed, with_roof, avg_area, big = cur.fetchone()
+            total, computed, with_roof = cur.fetchone()
 
-            # Un toit ne s'equipe qu'une fois : sommer par entreprise comptait
-            # plusieurs fois les batiments partages (mesure : ~17% de gonflement).
-            # On somme donc sur les toits distincts.
+            # Un toit ne s'equipe qu'une fois : agreger par entreprise comptait
+            # plusieurs fois les batiments partages (mesure : 16,4% de
+            # gonflement). Puissance, panneaux ET surface moyenne se calculent
+            # donc sur les toits distincts — la moyenne est d'ailleurs annoncee
+            # « par toit », pas par prospect.
             cur.execute(
                 """
-                SELECT COALESCE(sum(kwc), 0), COALESCE(sum(panels), 0), count(*)
+                SELECT COALESCE(sum(kwc), 0), COALESCE(sum(panels), 0),
+                       count(*), COALESCE(avg(area), 0),
+                       count(*) FILTER (WHERE kwc >= %s)
                 FROM (
                     SELECT DISTINCT ON (COALESCE(roof_key, 'company:' || id))
-                           solar_kwc AS kwc, solar_panels AS panels
+                           solar_kwc AS kwc, solar_panels AS panels, roof_area_m2 AS area
                     FROM companies
                     WHERE roof_area_m2 IS NOT NULL
                     ORDER BY COALESCE(roof_key, 'company:' || id), solar_kwc DESC NULLS LAST
                 ) t
-                """
+                """,
+                (BIG_PROSPECT_KWC,),
             )
-            total_kwc, total_panels, distinct_roofs = cur.fetchone()
+            total_kwc, total_panels, distinct_roofs, avg_area, big = cur.fetchone()
     finally:
         pool.putconn(conn)
 

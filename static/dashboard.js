@@ -62,7 +62,10 @@ function renderStats(summary) {
     [`${fmt(summary.avg_roof_area_m2, 0)} m²`, "Surface moyenne par toit", null],
     [
       fmt(summary.big_prospects),
-      `Cibles prioritaires (≥ ${threshold} kWc)`,
+      // Compte des toitures, pas des entreprises : un toit partagé ne
+      // représente qu'une installation à vendre. Le clic filtre la liste, qui
+      // peut donc afficher plus de lignes que ce nombre.
+      `Toitures prioritaires (≥ ${threshold} kWc)`,
       threshold,
     ],
   ];
