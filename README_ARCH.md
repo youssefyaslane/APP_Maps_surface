@@ -5,7 +5,8 @@ Prospection photovoltaïque sur toitures industrielles marocaines.
 Ce document décrit **l'état actuel** du projet, **la structure cible**, et **l'ordre**
 pour y parvenir. Il est tenu à jour au fil des refontes.
 
-Dernière mise à jour : 1er septembre 2026, après le retrait du mode zone.
+Dernière mise à jour : 1er septembre 2026, après l'ingestion d'OpenStreetMap
+et le retrait d'Overture.
 
 ---
 
@@ -34,15 +35,14 @@ qui suit découle de leur séparation.
 | `static/dashboard.js` | 218 | Tableau de bord |
 | `compute_solar_potential.py` | 170 | Recalcul du potentiel |
 
-### Base — 175 Mo, 356 337 lignes
+### Base — 151 Mo, 290 752 lignes
 
 | Table | Lignes | Taille | Rôle |
 |---|---:|---:|---|
-| `ms_buildings` | 193 253 | 90 Mo | Empreintes Microsoft, lecture seule |
-| `overture_buildings` | 160 592 | 82 Mo | Conservée pour import d'une nouvelle ville |
+| `ms_buildings` | 193 253 | 108 Mo | Empreintes Microsoft, lecture seule |
+| `osm_buildings` | 95 006 | 41 Mo | Bâtiments OSM ingérés depuis Geofabrik |
 | `companies` | 1 592 | 1,5 Mo | Les prospects — seule table écrite par le calcul |
 | `ia_segments` | 900 | 1,0 Mo | Toits produits dans l'app : détections validées, tracés manuels |
-| *OSM* | — | — | **Pas de table** : interrogé via Overpass à chaque usage |
 
 ### Mesures de fiabilité
 
@@ -59,13 +59,19 @@ Relevées sur échantillons aléatoires de prospects réels, non estimées :
 
 ### A — OpenStreetMap est ingéré, plus interrogé à chaud
 
-Un extrait Geofabrik du Maroc (232 Mo, régénéré quotidiennement) remplace les
-appels Overpass. Le calcul solaire cesse de dépendre d'un service extérieur :
-le recalcul complet passe de **13 minutes à quelques secondes**.
+**Fait.** Un extrait Geofabrik du Maroc (232 Mo, régénéré quotidiennement)
+remplace les appels Overpass : 95 006 bâtiments importés, les 648 `roof_key`
+existants tous préservés.
+
+Le recalcul complet passe de **13 à 8 minutes** — pas les quelques secondes
+espérées. Overpass n'était pas le seul goulot : la boucle Python
+point-dans-polygone domine désormais. Descendre plus bas demande PostGIS
+(étape 5). Le gain réel est ailleurs : plus aucune dépendance réseau dans le
+calcul, et des résultats reproductibles.
 
 ### B — La carte n'affiche que les toits des prospects
 
-1 401 toits utiles au lieu de 356 337 bâtiments. Les couches sources restent
+1 409 toits utiles au lieu de 290 752 bâtiments. Les couches sources restent
 activables, **décochées par défaut**, pour continuer à repérer les grands toits
 sans propriétaire connu.
 
@@ -104,12 +110,11 @@ FLASK  (conteneur web, port 5000)
 POSTGRESQL (conteneur db)   SERVICES EXTERNES
   companies                   Esri       tuiles satellite — segmentation seule
   buildings  (unifiée)        PVGIS      production kWh — enrichissement
-    osm · ms · overture · ia  Nominatim  géocodage — confort
+    osm · ms · ia · manual    Nominatim  géocodage — confort
 
 HORS LIGNE  (scripts, jamais dans le chemin critique)
   Geofabrik   extrait OSM du Maroc, 232 Mo, quotidien
   Microsoft   Global ML Building Footprints
-  Overture    instantané mensuel
 ```
 
 Après la décision A, **aucun service extérieur n'intervient dans le calcul du
@@ -151,7 +156,6 @@ app/
 scripts/
   import_osm_buildings.py        NOUVEAU — extrait Geofabrik → base
   import_ms_buildings.py
-  import_overture_buildings.py
   import_companies.py
   compute_solar_potential.py
   export_unmatched_roofs.py
@@ -199,8 +203,8 @@ static/css/
 | **D1** | La géométrie vit en JSONB, pas en PostgreSQL. Le test point-dans-polygone tourne en Python après chargement de tous les candidats d'un rayon de 300 m | racine |
 | **D2** | L'index sur `(lat, lon)` est un btree, pas un index spatial : sur 193 000 lignes, une recherche par emprise lit bien plus que nécessaire | performance |
 | **D3** | `roof_key` est une référence polymorphe (`osm:123`) qu'aucune clé étrangère ne protège | intégrité |
-| **D4** | `import_ms_buildings.py` n'a aucun `ON CONFLICT` et une clé primaire sérielle : le relancer dupliquerait les 193 253 bâtiments | **bug latent** |
-| **D5** | OSM n'est pas stocké mais interrogé à chaud — cause des 13 minutes de recalcul | traité par la décision A |
+| ~~**D4**~~ | ~~Import Microsoft non rejouable~~ | **corrigé** — clé générée `geom_hash` |
+| ~~**D5**~~ | ~~OSM interrogé à chaud~~ | **corrigé** — table `osm_buildings` |
 
 ---
 
@@ -215,7 +219,7 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 
 CREATE TABLE buildings (
     id          BIGSERIAL PRIMARY KEY,
-    source      TEXT NOT NULL,              -- osm | ms | overture | ia | manual
+    source      TEXT NOT NULL,              -- osm | ms | ia | manual
     source_id   TEXT,                       -- way/123, GERS, id du segment…
     geom        geometry(Polygon, 4326) NOT NULL,
     area_m2     DOUBLE PRECISION NOT NULL,
@@ -366,9 +370,8 @@ Supprimées : `/api/segment_zone` (mode zone) et `/api/overture_buildings`.
 
 | Script | Source | Rejouable |
 |---|---|---|
-| `import_osm_buildings.py` *(à écrire)* | Extrait Geofabrik, quotidien | oui — `ON CONFLICT (source, source_id)` |
-| `import_ms_buildings.py` | Microsoft Global ML Footprints | **non — à corriger (D4)** |
-| `import_overture_buildings.py` | Overture, mensuel | oui — `ON CONFLICT (id)` |
+| `import_osm_buildings.py` | Extrait Geofabrik, quotidien | oui — `ON CONFLICT (osm_id)` |
+| `import_ms_buildings.py` | Microsoft Global ML Footprints | oui — `ON CONFLICT (geom_hash)` |
 | `import_companies.py` | Fichiers Excel du scraping | oui — `ON CONFLICT (place_id)` |
 | `compute_solar_potential.py` | — | oui — `--all` pour tout reprendre |
 | `export_unmatched_roofs.py` | — | lecture seule |
@@ -382,7 +385,7 @@ Après la décision A, aucune n'intervient plus dans le calcul du potentiel sola
 | Service | Usage | Moment | Criticité |
 |---|---|---|---|
 | Geofabrik | Extrait OSM | import hors ligne | nulle |
-| Microsoft / Overture | Empreintes | import hors ligne | nulle |
+| Microsoft | Empreintes ML | import hors ligne | nulle |
 | Esri World Imagery | Tuiles satellite | segmentation, à la demande | moyenne |
 | PVGIS | Production kWh | enrichissement, cachable | basse |
 | Nominatim | Géocodage | confort | basse |
@@ -452,7 +455,7 @@ La numérotation est un ordre réel : chaque étape suppose les précédentes.
 | 6 | **Ingérer OSM** depuis l'extrait Geofabrik *(décision A)* | moyen | Recalcul 13 min → secondes |
 | 7 | Basculer la cascade sur `buildings`, comparer les résultats | moyen | Une requête au lieu de trois plus deux boucles |
 | 8 | Remplir `building_id` et `roof_match` par un recalcul | recalcul | Indice de confiance disponible |
-| 9 | **Couche « toits des prospects »** par défaut *(décision B)* | faible | 1 401 polygones au lieu de 356 337 |
+| 9 | **Couche « toits des prospects »** par défaut *(décision B)* | faible | 1 409 polygones au lieu de 290 752 |
 | 10 | Supprimer les anciennes tables et le client Overpass | **non réversible** | Une seule source de vérité |
 | 11 | Découper `api/` en blueprints, puis le frontend | moyen | `app.py` réduit à `create_app()` |
 | 12 | Poser les tests sur le domaine et les routes | nul | Filet de sécurité |
@@ -475,4 +478,5 @@ Pour éviter de rouvrir des questions déjà mesurées.
 | Un LLM peut-il produire les masques ? | **Non pour mesurer** | Le modèle suit réellement l'image, mais détoure des îlots et rend une taille différente de celle demandée |
 | Peut-on obtenir la hauteur des bâtiments ? | **Non gratuitement** | OSM : absente. Overture : 0,66 %. DEM Copernicus 30 m : testé, 0,6 m pour une aciérie. Google Solar API : ne couvre pas le Maroc |
 | Faut-il entraîner un modèle de segmentation ? | **Non** | La visite technique mesure sur place avant devis ; le coefficient `0.7` uniforme ne change pas le classement des prospects |
+| Faut-il garder le script d'import Overture ? | **Non** | Table supprimée, couche retirée, et deux scripts font mieux : Geofabrik pour OSM, le dataset Microsoft d'origine pour les empreintes ML. Récupérable dans l'historique Git |
 | Le mode zone est-il récupérable ? | **Non** | Retiré. Le raffinement multi-points le remplace : 0,2 s par correction, points positifs et négatifs |
