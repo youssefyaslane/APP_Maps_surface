@@ -918,6 +918,13 @@ def api_buildings():
     if not _bbox_within_morocco(bbox):
         return jsonify({"type": "FeatureCollection", "features": []})
 
+    # Table locale d'abord : la carte et le calcul du potentiel doivent montrer
+    # exactement les mêmes bâtiments, sinon une surface survolée ne correspond
+    # pas à celle du tableau de bord.
+    local = _query_osm_buildings(bbox)
+    if local:
+        return jsonify({"type": "FeatureCollection", "features": local})
+
     now = time.time()
     all_features = []
     missing_tiles = []
