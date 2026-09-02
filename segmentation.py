@@ -5,7 +5,6 @@ de ce point, on fait tourner MobileSAM pour segmenter la forme sous le clic,
 puis on convertit le masque de pixels en polygone géographique et on calcule
 sa surface (même formule que pour les données OSM).
 """
-import colorsys
 import io
 import math
 import os
@@ -26,29 +25,8 @@ TILE_SIZE_PX = 256
 ZOOM = 19  # niveau de zoom XYZ utilisé pour l'extraction (haute résolution)
 GRID_TILES = 3  # grille de 3x3 tuiles autour du point cliqué, pour avoir du contexte
 
-MIN_ROOF_AREA_M2 = 15.0
-MAX_ROOF_AREA_M2 = 50000.0
-
-# Filtre couleur pour écarter la végétation et les routes/asphalte du mode zone
-# (le modèle SAM n'a aucune notion sémantique de "toit", il segmente toute
-# forme visuellement cohérente). Teinte HSV en degrés, saturation/valeur en %.
-VEGETATION_HUE_RANGE = (70, 170)  # verts
-VEGETATION_MIN_SATURATION = 0.15
-ASPHALT_MAX_SATURATION = 0.12  # gris quasi neutre
-ASPHALT_MAX_VALUE = 0.55  # sombre (asphalte), pour ne pas écarter les toits gris clair/béton
-
-# Filtres de forme (mode zone uniquement) : un toit vu du ciel est compact et
-# globalement rectangulaire, contrairement aux routes/allées (bandes étirées) et
-# à la végétation ou aux cours irrégulières (contours déchiquetés).
-# Compacité = 4*pi*aire / perimetre^2 : 0.79 pour un carré, ~0.42 pour un
-# rectangle 5:1, ~0.15 pour une bande de route.
-MIN_SHAPE_COMPACTNESS = 0.35
-# Rectangularité = aire / aire du rectangle englobant : ~1 pour un toit
-# rectangulaire, ~0.65 pour un toit en L, ~0.2 pour une route en diagonale.
-MIN_SHAPE_RECTANGULARITY = 0.45
 
 _predictor = None
-_mask_generator = None
 
 
 def _lonlat_to_tile_xy(lon, lat, zoom):
@@ -111,42 +89,6 @@ def _fetch_composite_image(center_lon, center_lat, zoom=ZOOM, grid=GRID_TILES):
         "zoom": zoom,
     }
     return composite, georef, (click_px_x, click_px_y)
-
-
-def _fetch_composite_for_bbox(south, west, north, east, zoom=ZOOM):
-    """Assemble en une seule image toutes les tuiles couvrant la bbox donnée."""
-    tl_x, tl_y = _lonlat_to_tile_xy(west, north, zoom)
-    br_x, br_y = _lonlat_to_tile_xy(east, south, zoom)
-    tile_x0, tile_y0 = int(tl_x), int(tl_y)
-    tile_x1, tile_y1 = int(br_x), int(br_y)
-
-    grid_w = max(tile_x1 - tile_x0 + 1, 1)
-    grid_h = max(tile_y1 - tile_y0 + 1, 1)
-
-    composite = Image.new("RGB", (TILE_SIZE_PX * grid_w, TILE_SIZE_PX * grid_h))
-    for row in range(grid_h):
-        for col in range(grid_w):
-            tx = tile_x0 + col
-            ty = tile_y0 + row
-            try:
-                tile_img = _fetch_tile_image(tx, ty, zoom)
-            except requests.RequestException:
-                tile_img = Image.new("RGB", (TILE_SIZE_PX, TILE_SIZE_PX), (128, 128, 128))
-            composite.paste(tile_img, (col * TILE_SIZE_PX, row * TILE_SIZE_PX))
-
-    top_left_lon, top_left_lat = _tile_xy_to_lonlat(tile_x0, tile_y0, zoom)
-    bottom_right_lon, bottom_right_lat = _tile_xy_to_lonlat(tile_x0 + grid_w, tile_y0 + grid_h, zoom)
-
-    georef = {
-        "top_left": (top_left_lon, top_left_lat),
-        "bottom_right": (bottom_right_lon, bottom_right_lat),
-        "width_px": TILE_SIZE_PX * grid_w,
-        "height_px": TILE_SIZE_PX * grid_h,
-        "tile_x0": tile_x0,
-        "tile_y0": tile_y0,
-        "zoom": zoom,
-    }
-    return composite, georef
 
 
 def _pixel_to_lonlat(px, py, georef):
@@ -379,88 +321,6 @@ def _get_predictor():
     return _predictor
 
 
-def _get_mask_generator():
-    global _mask_generator
-    if _mask_generator is not None:
-        return _mask_generator
-
-    _download_checkpoint()
-
-    from mobile_sam import SamAutomaticMaskGenerator, sam_model_registry
-
-    model = sam_model_registry["vit_t"](checkpoint=CHECKPOINT_PATH)
-    model.eval()
-    _mask_generator = SamAutomaticMaskGenerator(
-        model,
-        points_per_side=20,
-        pred_iou_thresh=0.86,
-        stability_score_thresh=0.9,
-        min_mask_region_area=200,
-    )
-    return _mask_generator
-
-
-def _is_vegetation_or_asphalt(image_np, mask):
-    """Détermine si un masque correspond à de la végétation ou de l'asphalte
-    (routes/parkings) d'après sa couleur moyenne, pour l'écarter des toits
-    détectés en mode zone."""
-    pixels = image_np[mask]
-    if len(pixels) == 0:
-        return False
-
-    r, g, b = (pixels[:, i].mean() / 255.0 for i in range(3))
-    hue, saturation, value = colorsys.rgb_to_hsv(r, g, b)
-    hue_deg = hue * 360
-
-    if saturation >= VEGETATION_MIN_SATURATION and VEGETATION_HUE_RANGE[0] <= hue_deg <= VEGETATION_HUE_RANGE[1]:
-        return True
-
-    if saturation <= ASPHALT_MAX_SATURATION and value <= ASPHALT_MAX_VALUE:
-        return True
-
-    return False
-
-
-def _has_roof_like_shape(polygon_px):
-    """Écarte les formes géométriquement improbables pour un toit : bandes
-    étirées (routes, allées) et contours déchiquetés (végétation, cours).
-    Travaille en pixels, les ratios étant sans dimension.
-
-    Retourne (True, None) si la forme est plausible, sinon (False, motif).
-    """
-    n = len(polygon_px)
-    if n < 3:
-        return False, "polygone dégénéré"
-
-    area = 0.0
-    perimeter = 0.0
-    for i in range(n):
-        x1, y1 = polygon_px[i]
-        x2, y2 = polygon_px[(i + 1) % n]
-        area += x1 * y2 - x2 * y1
-        perimeter += math.hypot(x2 - x1, y2 - y1)
-    area = abs(area) / 2.0
-
-    if area <= 0 or perimeter <= 0:
-        return False, "polygone dégénéré"
-
-    compactness = 4 * math.pi * area / (perimeter**2)
-    if compactness < MIN_SHAPE_COMPACTNESS:
-        return False, f"forme trop étirée/déchiquetée (compacité {compactness:.2f})"
-
-    xs = [p[0] for p in polygon_px]
-    ys = [p[1] for p in polygon_px]
-    bbox_area = (max(xs) - min(xs)) * (max(ys) - min(ys))
-    if bbox_area <= 0:
-        return False, "polygone dégénéré"
-
-    rectangularity = area / bbox_area
-    if rectangularity < MIN_SHAPE_RECTANGULARITY:
-        return False, f"remplit mal son rectangle ({rectangularity:.2f})"
-
-    return True, None
-
-
 def _mask_to_polygon_px(mask):
     """Extrait le plus grand contour externe d'un masque booléen (approche sans cv2)."""
     import cv2
@@ -506,52 +366,5 @@ def segment_building_at(lon, lat):
     """
     result, _state = segment_start(lon, lat)
     return result
-
-
-def segment_roofs_in_zone(south, west, north, east):
-    """Détecte et segmente automatiquement tous les toits visibles dans la bbox donnée.
-
-    Retourne une liste de dicts {polygon: [[lon, lat], ...], area_m2: float}.
-    Peut lever ValueError si la zone demandée est trop grande.
-    """
-    composite, georef = _fetch_composite_for_bbox(south, west, north, east)
-
-    generator = _get_mask_generator()
-    image_np = np.array(composite)
-    annotations = generator.generate(image_np)
-
-    width_px, height_px = georef["width_px"], georef["height_px"]
-
-    results = []
-    for ann in annotations:
-        x, y, w, h = ann["bbox"]
-        # Écarte les formes qui touchent le bord de l'image (probablement coupées)
-        if x <= 0 or y <= 0 or x + w >= width_px or y + h >= height_px:
-            continue
-
-        if _is_vegetation_or_asphalt(image_np, ann["segmentation"]):
-            continue
-
-        polygon_px = _mask_to_polygon_px(ann["segmentation"])
-        if not polygon_px or len(polygon_px) < 3:
-            continue
-
-        plausible, _reason = _has_roof_like_shape(polygon_px)
-        if not plausible:
-            continue
-
-        polygon_lonlat = [_pixel_to_lonlat(px, py, georef) for px, py in polygon_px]
-        area = _polygon_area_m2(polygon_lonlat)
-        if area < MIN_ROOF_AREA_M2 or area > MAX_ROOF_AREA_M2:
-            continue
-
-        results.append(
-            {
-                "polygon": [[lon_, lat_] for lon_, lat_ in polygon_lonlat],
-                "area_m2": round(area, 1),
-            }
-        )
-
-    return results
 
 

@@ -1133,40 +1133,6 @@ def api_roof_manual():
     )
 
 
-@app.route("/api/segment_zone")
-def api_segment_zone():
-    try:
-        south = float(request.args["south"])
-        west = float(request.args["west"])
-        north = float(request.args["north"])
-        east = float(request.args["east"])
-    except (KeyError, ValueError):
-        return jsonify({"error": "Paramètres bbox invalides (south, west, north, east requis)"}), 400
-
-    if not _bbox_within_morocco((south, west, north, east)):
-        return jsonify({"error": "Zone hors du Maroc"}), 400
-
-    try:
-        results = segmentation.segment_roofs_in_zone(south, west, north, east)
-    except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except Exception as exc:
-        return jsonify({"error": f"Échec de la segmentation: {exc}"}), 502
-
-    stored_segments = [_store_ia_segment(r["polygon"], r["area_m2"]) for r in results]
-
-    features = [
-        {
-            "type": "Feature",
-            "id": s["id"],
-            "geometry": {"type": "Polygon", "coordinates": [s["polygon"] + [s["polygon"][0]]]},
-            "properties": {"area_m2": s["area_m2"], "source": "ia-segmentation"},
-        }
-        for s in stored_segments
-    ]
-    return jsonify({"type": "FeatureCollection", "features": features})
-
-
 @app.route("/api/ia_segments")
 def api_ia_segments():
     try:
