@@ -129,6 +129,18 @@ def _init_db():
                 "CREATE INDEX IF NOT EXISTS idx_ms_buildings_centroid "
                 "ON ms_buildings (centroid_lat, centroid_lon)"
             )
+            # Clé naturelle : la source Microsoft ne fournit aucun identifiant,
+            # seule la géométrie distingue deux bâtiments. Colonne générée, donc
+            # toujours cohérente avec le polygone, et unique pour rendre
+            # l'import rejouable sans dupliquer les 193 000 empreintes.
+            cur.execute(
+                "ALTER TABLE ms_buildings ADD COLUMN IF NOT EXISTS geom_hash TEXT "
+                "GENERATED ALWAYS AS (md5(polygon::text)) STORED"
+            )
+            cur.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_ms_buildings_geom_hash "
+                "ON ms_buildings (geom_hash)"
+            )
     finally:
         pool.putconn(conn)
 

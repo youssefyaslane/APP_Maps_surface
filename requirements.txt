@@ -1,9 +1,23 @@
+# Versions figées : deux constructions du même code doivent produire la même
+# application. Relever une version est un geste délibéré, testé — jamais un
+# effet de bord d'une reconstruction.
+#
+# torch et torchvision ne sont pas ici : le Dockerfile les installe depuis
+# l'index CPU de PyTorch, bien plus léger que la version CUDA par défaut.
+# Versions actuellement en service : torch 2.14.0+cpu, torchvision 0.29.0+cpu.
+
 Flask==3.0.3
 requests==2.32.3
 psycopg2-binary==2.9.9
-numpy
-pillow
-opencv-python-headless
-timm
+
+numpy==2.5.2
+pillow==12.3.0
+opencv-python-headless==5.0.0.93
+timm==1.0.29
+
 openpyxl==3.1.5
-git+https://github.com/ChaoningZhang/MobileSAM.git
+
+# MobileSAM épinglé sur un commit précis. Sans cela, ce dépôt n'ayant pas de
+# version publiée, chaque reconstruction prenait la tête de branche : le modèle
+# pouvait changer de comportement sans qu'aucune ligne du projet ne bouge.
+mobile-sam @ git+https://github.com/ChaoningZhang/MobileSAM.git@f706ad9c4eb7f219c00d9050e46328518ffb65d2

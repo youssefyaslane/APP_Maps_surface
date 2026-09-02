@@ -60,7 +60,11 @@ def import_ms_buildings(path):
         with conn, conn.cursor() as cur:
             psycopg2.extras.execute_values(
                 cur,
-                "INSERT INTO ms_buildings (polygon, area_m2, centroid_lon, centroid_lat) VALUES %s",
+                # geom_hash est une colonne générée : la contrainte d'unicité
+                # rend le script rejouable, réimporter le même fichier ne
+                # duplique rien.
+                "INSERT INTO ms_buildings (polygon, area_m2, centroid_lon, centroid_lat) "
+                "VALUES %s ON CONFLICT (geom_hash) DO NOTHING",
                 batch,
             )
         inserted += len(batch)
