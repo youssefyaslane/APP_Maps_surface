@@ -3,7 +3,14 @@ const MOROCCO_BOUNDS = [
   [27.0, -14.0],
   [36.2, -0.5],
 ];
-const MIN_ZOOM_FOR_BUILDINGS = 16;
+// Seuil d'affichage des bâtiments. Chaque niveau de zoom en moins quadruple
+// l'emprise, donc le nombre de polygones envoyés au navigateur : à 16, un
+// déplacement pouvait charger 3 000 bâtiments par couche.
+const MIN_ZOOM_FOR_BUILDINGS = 17;
+
+// La segmentation reste accessible un cran plus tôt : elle ne charge rien, elle
+// travaille sur les tuiles satellite du seul point cliqué.
+const MIN_ZOOM_FOR_SEGMENTATION = 16;
 
 const map = L.map("map", {
   center: MOROCCO_CENTER,
@@ -181,13 +188,14 @@ async function loadMsBuildings() {
     const resp = await fetch(`/api/ms_buildings?${params.toString()}`);
     if (!resp.ok) return;
     const data = await resp.json();
-    const newFeatures = data.features.filter((f) => {
-      if (loadedMsBuildingIds.has(f.id)) return false;
-      loadedMsBuildingIds.add(f.id);
-      return true;
-    });
-    if (newFeatures.length) {
-      msBuildingsLayer.addData({ type: "FeatureCollection", features: newFeatures });
+    // On repart du cadre visible plutôt que d'empiler : sans purge, chaque
+    // déplacement ajoutait jusqu'à 3 000 polygones de plus, et la carte
+    // devenait inutilisable au bout de quelques mouvements.
+    loadedMsBuildingIds.clear();
+    msBuildingsLayer.clearLayers();
+    data.features.forEach((f) => loadedMsBuildingIds.add(f.id));
+    if (data.features.length) {
+      msBuildingsLayer.addData(data);
     }
   } catch (err) {
     // rechargement silencieux, non bloquant
@@ -380,7 +388,10 @@ companyPanelCloseEl.addEventListener("click", closeCompanyPanel);
 
 const loadedIaIds = new Set();
 
-function addIaFeatures(featureCollection) {
+// `refreshCompanies` distingue un vrai ajout (un toit vient d'être enregistré,
+// il peut qualifier une entreprise) d'un simple rechargement au déplacement de
+// la carte, qui ne change rien et n'a pas à déclencher de requête.
+function addIaFeatures(featureCollection, { refreshCompanies = true } = {}) {
   const newFeatures = featureCollection.features.filter((f) => {
     if (loadedIaIds.has(f.id)) return false;
     loadedIaIds.add(f.id);
@@ -394,7 +405,7 @@ function addIaFeatures(featureCollection) {
   if (manualFeatures.length) {
     manualTraceLayer.addData({ type: "FeatureCollection", features: manualFeatures });
   }
-  if (newFeatures.length) {
+  if (newFeatures.length && refreshCompanies) {
     // Un nouveau toit peut qualifier une entreprise située dessous.
     refreshCompanyRoofStatus();
   }
@@ -433,7 +444,13 @@ async function loadIaSegments() {
     const resp = await fetch(`/api/ia_segments?${params.toString()}`);
     if (!resp.ok) return;
     const data = await resp.json();
-    addIaFeatures(data);
+    // Purge avant rechargement, pour la même raison que les bâtiments
+    // Microsoft. addIaFeatures reste additif : il sert aussi à afficher un
+    // toit qui vient d'être enregistré, sans tout recharger.
+    loadedIaIds.clear();
+    aiDetectedLayer.clearLayers();
+    manualTraceLayer.clearLayers();
+    addIaFeatures(data, { refreshCompanies: false });
   } catch (err) {
     // rechargement silencieux, non bloquant
   }
@@ -681,7 +698,7 @@ function segClear() {
 }
 
 async function segStart(latlng) {
-  if (map.getZoom() < MIN_ZOOM_FOR_BUILDINGS) {
+  if (map.getZoom() < MIN_ZOOM_FOR_SEGMENTATION) {
     setStatus("Zoomez davantage pour utiliser la détection IA.", true);
     setTimeout(() => setStatus(null), 2500);
     return;
