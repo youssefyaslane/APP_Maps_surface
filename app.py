@@ -523,6 +523,7 @@ def _find_roof_at_point(lon, lat):
             "area_m2": f["properties"]["area_m2"],
             "source": "osm",
             "polygon": f["geometry"]["coordinates"][0],
+            "holes": f["geometry"]["coordinates"][1:],
             "roof_key": f"osm:{f['id']}",
         }
         for f in _cached_osm_buildings_at(bbox)
@@ -538,12 +539,19 @@ def _find_roof_at_point(lon, lat):
 
     for candidates in (osm_candidates, ia_candidates, ms_candidates):
         for c in candidates:
-            if _point_in_polygon(lon, lat, c["polygon"]):
-                return c
+            if not _point_in_polygon(lon, lat, c["polygon"]):
+                continue
+            # Un point tombant dans une cour intérieure n'est pas sur le toit.
+            if any(_point_in_polygon(lon, lat, h) for h in c.get("holes") or []):
+                continue
+            return c
 
+    # Départage stable : deux bâtiments superposés à distance quasi identique
+    # (immeubles redessinés, doublons de saisie) doivent toujours donner le même
+    # toit, sinon la surface d'un prospect change d'un recalcul à l'autre.
     best, best_dist = None, ROOF_NEARBY_RADIUS_M
     for candidates in (osm_candidates, ia_candidates, ms_candidates):
-        for c in candidates:
+        for c in sorted(candidates, key=lambda x: x["roof_key"]):
             d = _distance_to_polygon_m(lon, lat, c["polygon"])
             if d < best_dist:
                 best, best_dist = c, d
@@ -673,12 +681,67 @@ def _cached_osm_tile(tile_key):
 
 
 def _cached_osm_buildings_at(bbox):
-    """Bâtiments OSM couvrant la bbox donnée (plusieurs tuiles si le point est
-    proche d'une frontière de tuile)."""
+    """Bâtiments OSM couvrant la bbox donnée.
+
+    Lit la table `osm_buildings`, alimentée hors ligne par
+    import_osm_buildings.py depuis un extrait Geofabrik. Repli sur Overpass tant
+    que la table n'a pas été remplie, pour qu'une installation neuve reste
+    fonctionnelle sans import préalable.
+    """
+    rows = _query_osm_buildings(bbox)
+    if rows:
+        return rows
+
     features = []
     for tile_key in _tile_keys_for_bbox(bbox):
         features.extend(_cached_osm_tile(tile_key))
     return features
+
+
+def _query_osm_buildings(bbox):
+    """Bâtiments OSM en base, au format GeoJSON attendu par la cascade de toits.
+
+    L'identifiant renvoyé est celui d'OpenStreetMap, identique à ce que donnait
+    Overpass : les roof_key déjà calculés (`osm:1111649392`) restent valides.
+    """
+    south, west, north, east = bbox
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT osm_id, polygon, area_m2, name, building_type, levels, holes
+                FROM osm_buildings
+                WHERE centroid_lat BETWEEN %s AND %s AND centroid_lon BETWEEN %s AND %s
+                LIMIT %s
+                """,
+                (south, north, west, east, MS_BUILDINGS_QUERY_LIMIT),
+            )
+            rows = cur.fetchall()
+    except psycopg2.errors.UndefinedTable:
+        conn.rollback()
+        return []  # table absente tant que l'import n'a pas été lancé
+    finally:
+        pool.putconn(conn)
+
+    return [
+        {
+            "type": "Feature",
+            "id": r[0],
+            # Les cours intérieures sont rendues comme trous du polygone : la
+            # carte les laisse voir, et la surface les exclut déjà.
+            "geometry": {"type": "Polygon", "coordinates": [r[1]] + (r[6] or [])},
+            "properties": {
+                "id": r[0],
+                "name": r[3],
+                "building_type": r[4],
+                "levels": r[5],
+                "area_m2": round(r[2], 1),
+            },
+        }
+        for r in rows
+    ]
 
 
 def _bbox_within_morocco(bbox):
