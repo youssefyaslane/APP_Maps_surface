@@ -18,3 +18,6 @@ get-pip.py
 # versionne car la carte l'affiche en couche.
 static/zone_test.png
 /zone_test_mask.jpeg
+
+# Sources d'images non optimisees : seules les versions web sont versionnees
+static/img/vecteezy_*
