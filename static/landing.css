@@ -489,3 +489,21 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
   .cible { grid-template-columns: 32px minmax(0, 1fr); gap: 10px 14px; }
   .cible-chiffres, .cible-actions { grid-column: 2; }
 }
+
+/* Illustration isométrique du hero : une toiture équipée, dessinée aux couleurs
+   du logo. Décorative — masquée sous 1100 px, où elle chevaucherait le texte. */
+.hero-art {
+  position: absolute;
+  right: -40px;
+  bottom: -10px;
+  width: min(660px, 52vw);
+  height: auto;
+  pointer-events: none;
+  opacity: 0.95;
+}
+
+.hero-inner { position: relative; z-index: 2; }
+
+@media (max-width: 1100px) {
+  .hero-art { display: none; }
+}
