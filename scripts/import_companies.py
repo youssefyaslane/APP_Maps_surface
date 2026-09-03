@@ -1,6 +1,6 @@
 """Importe les entreprises depuis un ou plusieurs fichiers Excel (exports de
 différents scrapers Google Maps) dans la table PostgreSQL `companies`.
-Usage: python import_companies.py [chemin.xlsx ...]
+Usage: python -m scripts.import_companies [chemin.xlsx ...]
 Sans argument, importe tous les .xlsx trouvés dans Data_clients/."""
 import os
 import sys
@@ -100,7 +100,7 @@ def import_companies(xlsx_path):
 if __name__ == "__main__":
     paths = sys.argv[1:] if len(sys.argv) > 1 else _find_all_xlsx()
     if not paths:
-        print("Aucun fichier .xlsx trouvé. Usage: python import_companies.py [chemin.xlsx ...]")
+        print("Aucun fichier .xlsx trouvé. Usage: python -m scripts.import_companies [chemin.xlsx ...]")
         sys.exit(1)
     for path in paths:
         print(f"--- {os.path.basename(path)} ---")

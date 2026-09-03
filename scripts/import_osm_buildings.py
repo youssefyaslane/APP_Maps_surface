@@ -13,7 +13,7 @@ Préparation du fichier source (osmium-tool requis) :
     osmium tags-filter zone.pbf w/building a/building -o batiments.pbf
     osmium export batiments.pbf -f geojsonseq --add-unique-id=type_id \
         -o batiments.geojsonl
-    python import_osm_buildings.py batiments.geojsonl
+    python -m scripts.import_osm_buildings batiments.geojsonl
 
 Identifiants : osmium numérote les surfaces selon sa propre convention —
 `way_id * 2` pour une surface issue d'un chemin, `relation_id * 2 + 1` pour une

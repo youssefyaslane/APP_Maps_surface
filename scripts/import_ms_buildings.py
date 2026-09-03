@@ -5,7 +5,7 @@ dans la table PostgreSQL `ms_buildings`. Complète les zones peu/pas couvertes p
 Le fichier source est au format .geojsonl (une Feature GeoJSON par ligne), distribué
 compressé en .csv.gz malgré le contenu JSON. Téléchargez la tuile correspondant à
 votre zone via le lien du dataset (dataset-links.csv sur le dépôt GitHub ci-dessus),
-décompressez-la, puis lancez : python import_ms_buildings.py chemin/vers/fichier.geojsonl
+décompressez-la, puis lancez : python -m scripts.import_ms_buildings chemin/vers/fichier.geojsonl
 """
 import json
 import math
@@ -109,6 +109,6 @@ def import_ms_buildings(path):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python import_ms_buildings.py chemin/vers/fichier.geojsonl")
+        print("Usage: python -m scripts.import_ms_buildings chemin/vers/fichier.geojsonl")
         sys.exit(1)
     import_ms_buildings(sys.argv[1])

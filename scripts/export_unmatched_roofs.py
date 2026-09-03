@@ -2,7 +2,7 @@
 entreprise connue à proximité : zone (min/max latitude et longitude), surface
 et potentiel solaire.
 
-Usage: python export_unmatched_roofs.py [surface_min_m2] [chemin_sortie.csv]
+Usage: python -m scripts.export_unmatched_roofs [surface_min_m2] [chemin_sortie.csv]
 
 Sans argument, exporte les toits >= 2000 m² vers grands_toits_sans_entreprise.csv.
 """

@@ -3,7 +3,7 @@ sous ses coordonnées (OSM, toits détectés/tracés, puis Microsoft), estime le
 nombre de panneaux installables et la puissance correspondante, et stocke le
 résultat dans la table `companies`.
 
-Usage: python compute_solar_potential.py [--all|--retry-empty]
+Usage: python -m scripts.compute_solar_potential [--all|--retry-empty]
 
 Par défaut, ne traite que les entreprises pas encore calculées (reprise
 possible après interruption). Avec --all, recalcule tout. Avec --retry-empty,

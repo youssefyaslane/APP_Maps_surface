@@ -288,7 +288,7 @@ osmium tags-filter zone.pbf w/building -o batiments.pbf
 osmium export batiments.pbf -f geojsonseq -o batiments.geojsonl
 
 # 5. Ingérer, en conservant l'identifiant OSM pour le roof_key
-python scripts/import_osm_buildings.py batiments.geojsonl
+python -m scripts.import_osm_buildings batiments.geojsonl
 ```
 
 **Deux points d'attention.** Le volume : Casablanca seule compte 47 000 bâtiments

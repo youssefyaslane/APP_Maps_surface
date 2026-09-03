@@ -18,26 +18,26 @@ docker compose logs web -f     # suit les logs en direct
 **Importer de nouvelles entreprises** (déposer le(s) fichier(s) `.xlsx` dans `Data_clients/` d'abord)
 ```bash
 docker compose cp Data_clients/mon_fichier.xlsx web:/app/Data_clients/mon_fichier.xlsx
-docker compose exec web python import_companies.py
+docker compose exec web python -m scripts.import_companies
 ```
 
 **Calculer le potentiel solaire** (à faire après chaque import)
 ```bash
-docker compose exec web python compute_solar_potential.py               # seulement les nouvelles
-docker compose exec web python compute_solar_potential.py --retry-empty # retente les échecs réseau
-docker compose exec web python compute_solar_potential.py --all         # tout recalculer
+docker compose exec web python -m scripts.compute_solar_potential               # seulement les nouvelles
+docker compose exec web python -m scripts.compute_solar_potential --retry-empty # retente les échecs réseau
+docker compose exec web python -m scripts.compute_solar_potential --all         # tout recalculer
 ```
 
 **Exporter les grands toits sans entreprise connue** (angle mort à explorer manuellement)
 ```bash
-docker compose exec web python export_unmatched_roofs.py
+docker compose exec web python -m scripts.export_unmatched_roofs
 docker compose cp web:/app/grands_toits_sans_entreprise.csv Data_clients/Grands_toits/grands_toits_sans_entreprise.csv
 ```
 
 **Importer des bâtiments Microsoft** (une seule fois par zone, voir plus bas)
 ```bash
 docker compose cp fichier.geojsonl web:/tmp/fichier.geojsonl
-docker compose exec web python import_ms_buildings.py /tmp/fichier.geojsonl
+docker compose exec web python -m scripts.import_ms_buildings /tmp/fichier.geojsonl
 ```
 
 **Explorer la base**
@@ -113,16 +113,16 @@ Placez un ou plusieurs exports scraper Google Maps (`.xlsx`) dans le dossier `Da
 Puis lancez :
 
 ```bash
-python import_companies.py
+python -m scripts.import_companies
 ```
 
-Sans argument, le script importe **tous** les `.xlsx` trouvés dans `Data_clients/` (ou passez un ou plusieurs chemins explicites : `python import_companies.py fichier1.xlsx fichier2.xlsx`). L'import est idempotent : relancer le script met à jour les entreprises déjà importées (dédoublonnage par `placeId`, y compris entre plusieurs fichiers) plutôt que de créer des doublons.
+Sans argument, le script importe **tous** les `.xlsx` trouvés dans `Data_clients/` (ou passez un ou plusieurs chemins explicites : `python -m scripts.import_companies fichier1.xlsx fichier2.xlsx`). L'import est idempotent : relancer le script met à jour les entreprises déjà importées (dédoublonnage par `placeId`, y compris entre plusieurs fichiers) plutôt que de créer des doublons.
 
 Avec Docker, `Data_clients/` n'étant pas monté en volume (dossier exclu du dépôt), copiez d'abord le fichier dans le conteneur :
 
 ```bash
 docker compose cp Data_clients/mon_fichier.xlsx web:/app/Data_clients/mon_fichier.xlsx
-docker compose exec web python import_companies.py
+docker compose exec web python -m scripts.import_companies
 ```
 
 Après un import, lancez `compute_solar_potential.py` pour calculer le potentiel solaire des nouvelles entreprises et les faire apparaître au tableau de bord.
@@ -136,14 +136,14 @@ Pour compléter les zones peu couvertes par OSM avec des empreintes de bâtiment
 3. Importez-la :
 
 ```bash
-python import_ms_buildings.py chemin/vers/fichier.geojsonl
+python -m scripts.import_ms_buildings chemin/vers/fichier.geojsonl
 ```
 
 Avec Docker (copier le fichier dans le conteneur d'abord) :
 
 ```bash
 docker compose cp fichier.geojsonl web:/tmp/fichier.geojsonl
-docker compose exec web python import_ms_buildings.py /tmp/fichier.geojsonl
+docker compose exec web python -m scripts.import_ms_buildings /tmp/fichier.geojsonl
 ```
 
 Ce dataset ne contient ni nom ni adresse — uniquement la géométrie du toit (aucune notion sémantique de « bâtiment », c'est un modèle de vision par ordinateur).
@@ -164,7 +164,7 @@ Accessible depuis la carte (bouton « ☀️ Prospects solaires ») ou directeme
 Le tableau de bord s'alimente d'un calcul en masse qui, pour chaque entreprise, cherche le toit sous ses coordonnées et en déduit le nombre de panneaux installables :
 
 ```bash
-docker compose exec web python compute_solar_potential.py
+docker compose exec web python -m scripts.compute_solar_potential
 ```
 
 Sans argument, seules les entreprises pas encore calculées sont traitées — le script est **interruptible et reprend où il s'est arrêté**. Avec `--all`, tout est recalculé. Avec `--retry-empty`, retraite aussi les entreprises déjà calculées mais sans toit trouvé : un échec réseau Overpass ponctuel pendant un gros calcul peut laisser une entreprise "sans toit" alors qu'un bâtiment OSM existe bien (visible au clic manuel sur la carte, qui retente l'appel) — beaucoup moins coûteux qu'un `--all` complet puisqu'il ne retraite que ce sous-ensemble.
@@ -248,7 +248,7 @@ docker-compose.yml      Orchestration (web + PostgreSQL) + volumes persistants
 Équivalent en script, pour l'exécuter directement sans passer par le serveur HTTP :
 
 ```bash
-docker compose exec web python export_unmatched_roofs.py [surface_min_m2] [chemin_sortie.csv]
+docker compose exec web python -m scripts.export_unmatched_roofs [surface_min_m2] [chemin_sortie.csv]
 ```
 
 Sans argument, exporte les toits ≥ 2000 m² vers `grands_toits_sans_entreprise.csv` (dans le conteneur — le récupérer avec `docker compose cp web:/app/grands_toits_sans_entreprise.csv .`).
