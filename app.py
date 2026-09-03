@@ -873,6 +873,7 @@ def _landing_stats():
     fallback = {
         "prospects_avec_toit": "—", "toits_distincts": "—",
         "surface_totale": "—", "puissance_totale": "—", "batiments_base": "—",
+        "sans_toit": "—", "top": [],
     }
     pool = _get_db_pool()
     conn = pool.getconn()
@@ -901,6 +902,20 @@ def _landing_stats():
                 "SELECT (SELECT count(*) FROM osm_buildings) + (SELECT count(*) FROM ms_buildings)"
             )
             batiments = cur.fetchone()[0]
+            cur.execute("SELECT count(*) FROM companies WHERE roof_area_m2 IS NULL")
+            sans_toit = cur.fetchone()[0]
+            # Meilleures cibles du moment, une par toiture : deux societes d'un
+            # meme immeuble ne doivent pas occuper deux lignes du classement.
+            cur.execute(
+                """
+                SELECT DISTINCT ON (COALESCE(roof_key, 'c:' || id))
+                       name, city, category, roof_area_m2, solar_kwc, phone, lon, lat
+                FROM companies
+                WHERE roof_area_m2 IS NOT NULL
+                ORDER BY COALESCE(roof_key, 'c:' || id), solar_kwc DESC NULLS LAST
+                """
+            )
+            top = sorted(cur.fetchall(), key=lambda r: -(r[4] or 0))[:5]
     except psycopg2.Error:
         conn.rollback()
         return fallback
@@ -916,6 +931,15 @@ def _landing_stats():
         "surface_totale": fr(surface),
         "puissance_totale": fr(kwc),
         "batiments_base": fr(batiments),
+        "sans_toit": fr(sans_toit),
+        "top": [
+            {
+                "nom": r[0], "ville": r[1] or "—", "secteur": r[2] or "—",
+                "surface": fr(r[3] or 0), "kwc": fr(r[4] or 0),
+                "tel": r[5], "lon": r[6], "lat": r[7],
+            }
+            for r in top
+        ],
     }
 
 

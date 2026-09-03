@@ -362,3 +362,130 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
 @media (prefers-reduced-motion: reduce) {
   .panel { transition: none; }
 }
+
+/* ---------- outil interne : cibles du moment et état de la base ---------- */
+
+.sec-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.sec-head .sec-title { margin-bottom: 20px; }
+
+.sec-link {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--turquoise);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.sec-link:hover, .sec-link:focus-visible { color: var(--bleu); }
+
+.top-list {
+  display: grid;
+  gap: 1px;
+  background: var(--trait);
+  border: 1px solid var(--trait);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.cible {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 22px;
+  background: var(--surface);
+}
+
+.cible-rang {
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-pale);
+  text-align: center;
+}
+
+.cible-id { min-width: 0; }
+.cible-id b {
+  display: block;
+  font-size: 15.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cible-id span { font-size: 13px; color: var(--ink-pale); }
+
+.cible-chiffres { display: flex; gap: 18px; align-items: baseline; }
+.cible-m2 { font-size: 14px; color: var(--ink-doux); font-variant-numeric: tabular-nums; }
+.cible-kwc {
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--vert);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cible-actions { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
+.lien-tel { font-size: 13.5px; font-weight: 600; color: var(--bleu); text-decoration: none; }
+.lien-tel:hover { text-decoration: underline; }
+.sans-tel { font-size: 13px; color: var(--ink-pale); font-style: italic; }
+
+.lien-carte {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-doux);
+  text-decoration: none;
+  padding: 6px 12px;
+  border: 1px solid var(--trait);
+  border-radius: 7px;
+}
+.lien-carte:hover, .lien-carte:focus-visible { border-color: var(--turquoise); color: var(--turquoise); }
+
+.vide { color: var(--ink-pale); font-size: 14.5px; }
+.vide code {
+  background: var(--trait-pale);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.etat { padding: 84px 0 0; }
+
+.etat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+}
+
+.ec {
+  background: var(--surface);
+  border: 1px solid var(--trait);
+  border-left: 3px solid var(--turquoise);
+  border-radius: 10px;
+  padding: 18px 20px;
+}
+.ec-warn { border-left-color: var(--lime); }
+
+.ec b {
+  display: block;
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 5px;
+}
+.ec span { font-size: 13.5px; color: var(--ink-doux); }
+
+.sources-intro { max-width: 62ch; margin: -18px 0 26px; font-size: 15px; color: var(--ink-doux); }
+
+@media (max-width: 780px) {
+  .cible { grid-template-columns: 32px minmax(0, 1fr); gap: 10px 14px; }
+  .cible-chiffres, .cible-actions { grid-column: 2; }
+}

@@ -13,19 +13,18 @@
 
   <header class="nav">
     <a class="brand" href="/">
-      {# Dépose ton logo dans static/logo-netis.svg (ou .png) : il remplace
-         automatiquement le logotype ci-dessous, sans rien changer d'autre. #}
+      {# Le logo est lu dans static/img/logo-netis.png : le remplacer suffit,
+         il est repris ici et en pied de page. #}
       {% if logo %}
         <img class="brand-logo" src="{{ url_for('static', filename=logo) }}" alt="Netis" />
       {% else %}
         <span class="brand-mark">NETIS</span>
       {% endif %}
-      <span class="brand-app">Prospection solaire</span>
+      <span class="brand-app">Prospection solaire · outil interne</span>
     </a>
     <nav class="nav-links">
       <a href="/carte">Carte</a>
-      <a href="/dashboard">Prospects</a>
-      <a class="nav-cta" href="/dashboard">Ouvrir l'outil</a>
+      <a class="nav-cta" href="/dashboard">Liste des prospects</a>
     </nav>
   </header>
 
@@ -57,88 +56,118 @@
 
     <div class="hero-inner">
       <p class="eyebrow">Casablanca · toitures industrielles</p>
-      <h1>Trouver les toits<br />qui valent un<br /><em>coup de téléphone.</em></h1>
+      <h1>{{ stats.toits_distincts }} toitures mesurées,<br /><em>classées par potentiel.</em></h1>
       <p class="lede">
-        L'outil croise vos entreprises avec les empreintes de bâtiments d'OpenStreetMap
-        et de Microsoft, mesure chaque toiture, et classe vos prospects par potentiel
-        photovoltaïque.
+        Chaque entreprise de la base est rattachée au bâtiment sous ses coordonnées,
+        sa toiture mesurée, sa puissance installable estimée. Reste à décider qui
+        appeler en premier.
       </p>
       <div class="cta">
-        <a class="btn btn-primary" href="/dashboard">Voir les prospects classés</a>
-        <a class="btn btn-ghost" href="/carte">Explorer la carte</a>
+        <a class="btn btn-primary" href="/dashboard">Ouvrir la liste</a>
+        <a class="btn btn-ghost" href="/carte">Aller sur la carte</a>
       </div>
     </div>
-
   </section>
 
-    <div class="figures">
-      <div class="fig"><b>{{ stats.prospects_avec_toit }}</b><span>prospects avec toit</span></div>
-      <div class="fig"><b>{{ stats.toits_distincts }}</b><span>toitures distinctes</span></div>
-      <div class="fig"><b>{{ stats.surface_totale }}</b><span>m² mesurés</span></div>
-      <div class="fig accent"><b>{{ stats.puissance_totale }}</b><span>kWc installables</span></div>
-    </div>
+  <div class="figures">
+    <div class="fig"><b>{{ stats.prospects_avec_toit }}</b><span>prospects exploitables</span></div>
+    <div class="fig"><b>{{ stats.toits_distincts }}</b><span>toitures distinctes</span></div>
+    <div class="fig"><b>{{ stats.surface_totale }}</b><span>m² mesurés</span></div>
+    <div class="fig accent"><b>{{ stats.puissance_totale }}</b><span>kWc installables</span></div>
+  </div>
 
   <main>
 
-    <section class="how">
-      <h2 class="sec-title">De la coordonnée GPS<br />au coup de téléphone</h2>
-      <ol class="steps">
-        <li>
-          <span class="step-n">01</span>
-          <h3>Les entreprises</h3>
-          <p>Importées depuis vos fichiers de prospection : nom, secteur, adresse, téléphone, coordonnées.</p>
-        </li>
-        <li>
-          <span class="step-n">02</span>
-          <h3>Le toit</h3>
-          <p>L'outil cherche le bâtiment sous chaque entreprise parmi {{ stats.batiments_base }} empreintes en base — OpenStreetMap d'abord, Microsoft ensuite.</p>
-        </li>
-        <li>
-          <span class="step-n">03</span>
-          <h3>Le potentiel</h3>
-          <p>La surface devient panneaux et kilowatts-crête. Une toiture partagée entre plusieurs sociétés n'est comptée qu'une fois.</p>
-        </li>
-        <li>
-          <span class="step-n">04</span>
-          <h3>La correction</h3>
-          <p>Là où aucune source ne connaît le bâtiment, un clic le détoure par analyse de l'imagerie satellite. L'opérateur corrige, puis valide.</p>
-        </li>
-      </ol>
+    <section class="top">
+      <div class="sec-head">
+        <h2 class="sec-title">Les cinq plus gros toits</h2>
+        <a class="sec-link" href="/dashboard">Voir les {{ stats.prospects_avec_toit }} prospects →</a>
+      </div>
+
+      {% if stats.top %}
+      <div class="top-list">
+        {% for p in stats.top %}
+        <article class="cible">
+          <span class="cible-rang">{{ loop.index }}</span>
+          <div class="cible-id">
+            <b>{{ p.nom }}</b>
+            <span>{{ p.secteur }} · {{ p.ville }}</span>
+          </div>
+          <div class="cible-chiffres">
+            <span class="cible-m2">{{ p.surface }} m²</span>
+            <span class="cible-kwc">{{ p.kwc }} kWc</span>
+          </div>
+          <div class="cible-actions">
+            {% if p.tel %}
+              <a class="lien-tel" href="tel:{{ p.tel }}">{{ p.tel }}</a>
+            {% else %}
+              <span class="sans-tel">pas de téléphone</span>
+            {% endif %}
+            <a class="lien-carte" href="/carte?lat={{ p.lat }}&amp;lon={{ p.lon }}">Voir le toit</a>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="vide">Aucun potentiel calculé pour l'instant. Lancez <code>python -m scripts.compute_solar_potential</code>.</p>
+      {% endif %}
+    </section>
+
+    <section class="etat">
+      <h2 class="sec-title">État de la base</h2>
+      <div class="etat-grid">
+        <div class="ec">
+          <b>{{ stats.batiments_base }}</b>
+          <span>empreintes de bâtiments en base — OpenStreetMap et Microsoft, importées hors ligne</span>
+        </div>
+        <div class="ec ec-warn">
+          <b>{{ stats.sans_toit }}</b>
+          <span>entreprises sans toit rattaché — à tracer sur la carte si elles valent le coup</span>
+        </div>
+        <div class="ec">
+          <b>0,31 m</b>
+          <span>par pixel sur l'imagerie satellite, base de la détection assistée</span>
+        </div>
+      </div>
     </section>
 
     <section class="panels">
       <a class="panel panel-map" href="/carte">
         <span class="panel-tag">Carte</span>
-        <h3>Explorer le terrain</h3>
-        <p>Bâtiments et entreprises sur l'imagerie satellite. Survolez un toit pour sa surface, cliquez pour le détourer, tracez-le à la main quand il manque.</p>
+        <h3>Vérifier un toit</h3>
+        <p>Survolez pour la surface, cliquez pour détourer un bâtiment que les sources ignorent, tracez-le à la main si la détection se trompe. Rien n'est enregistré avant votre validation.</p>
         <span class="panel-go">Ouvrir la carte</span>
       </a>
       <a class="panel panel-dash" href="/dashboard">
         <span class="panel-tag">Prospects</span>
-        <h3>Préparer les appels</h3>
-        <p>La liste classée par puissance, filtrable par ville et par secteur, avec les contacts et le signalement des toitures partagées. Export CSV.</p>
+        <h3>Préparer vos appels</h3>
+        <p>Classement par puissance, filtres par ville et par secteur, contacts, et signalement des toitures partagées entre plusieurs sociétés. Export CSV pour le terrain.</p>
         <span class="panel-go">Voir la liste</span>
       </a>
     </section>
 
     <section class="sources">
-      <h2 class="sec-title">D'où viennent les données</h2>
+      <h2 class="sec-title">D'où viennent les surfaces</h2>
+      <p class="sources-intro">
+        Utile avant un rendez-vous : toutes les surfaces n'ont pas la même fiabilité.
+        La liste indique la source de chaque toit.
+      </p>
       <div class="src-grid">
         <div class="src src-osm">
           <b>OpenStreetMap</b>
-          <span>Contours cartographiés par des humains, ingérés localement depuis un extrait Geofabrik.</span>
+          <span>Contours cartographiés par des humains. La source la plus sûre — mais en tissu dense elle regroupe parfois tout un îlot.</span>
         </div>
         <div class="src src-ms">
-          <b>Microsoft ML Buildings</b>
-          <span>Empreintes détectées automatiquement, là où OpenStreetMap ne couvre pas.</span>
+          <b>Microsoft</b>
+          <span>Empreintes détectées automatiquement, là où OpenStreetMap ne couvre pas. Découpage souvent plus fin.</span>
         </div>
         <div class="src src-esri">
-          <b>Imagerie Esri</b>
-          <span>Vue satellite à 0,31 m par pixel, base de la détection assistée.</span>
+          <b>Détection assistée</b>
+          <span>Un clic propose un contour sur l'imagerie satellite, l'opérateur corrige et valide. À vérifier avant de citer un chiffre.</span>
         </div>
         <div class="src src-man">
           <b>Tracé manuel</b>
-          <span>Le dernier recours, quand aucune source ne connaît le bâtiment.</span>
+          <span>Le contour dessiné par un collègue. Le plus fiable quand il a été fait avec soin.</span>
         </div>
       </div>
     </section>
@@ -151,7 +180,7 @@
     {% else %}
       <span class="foot-brand">NETIS</span>
     {% endif %}
-    <span class="foot-txt">Prospection photovoltaïque · Casablanca</span>
+    <span class="foot-txt">Outil interne · prospection photovoltaïque</span>
     <span class="foot-links">
       <a href="/carte">Carte</a>
       <a href="/dashboard">Prospects</a>
