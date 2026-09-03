@@ -132,7 +132,7 @@ function renderRows(prospects) {
           <td>${sourceBadge(p.roof_source)}</td>
           <td class="roof-status">${roofStatus}</td>
           <td class="contact">${contact || "—"}</td>
-          <td><a class="map-link" href="/?lat=${p.lat}&lon=${p.lon}" title="Voir sur la carte">🗺️ Voir</a></td>
+          <td><a class="map-link" href="/carte?lat=${p.lat}&lon=${p.lon}" title="Voir sur la carte">🗺️ Voir</a></td>
         </tr>`;
     })
     .join("");

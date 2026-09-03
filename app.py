@@ -867,7 +867,69 @@ def _build_geojson(osm_data):
     return features
 
 
+def _landing_stats():
+    """Chiffres de la page d'accueil, comptés sur les toits distincts : une
+    toiture partagée par plusieurs sociétés ne vaut qu'une installation."""
+    fallback = {
+        "prospects_avec_toit": "—", "toits_distincts": "—",
+        "surface_totale": "—", "puissance_totale": "—", "batiments_base": "—",
+    }
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT count(*) FILTER (WHERE roof_area_m2 IS NOT NULL),
+                       count(DISTINCT roof_key)
+                FROM companies
+                """
+            )
+            avec_toit, distincts = cur.fetchone()
+            cur.execute(
+                """
+                SELECT COALESCE(sum(area), 0), COALESCE(sum(kwc), 0) FROM (
+                    SELECT DISTINCT ON (COALESCE(roof_key, 'c:' || id))
+                           roof_area_m2 AS area, solar_kwc AS kwc
+                    FROM companies WHERE roof_area_m2 IS NOT NULL
+                    ORDER BY COALESCE(roof_key, 'c:' || id), solar_kwc DESC NULLS LAST
+                ) t
+                """
+            )
+            surface, kwc = cur.fetchone()
+            cur.execute(
+                "SELECT (SELECT count(*) FROM osm_buildings) + (SELECT count(*) FROM ms_buildings)"
+            )
+            batiments = cur.fetchone()[0]
+    except psycopg2.Error:
+        conn.rollback()
+        return fallback
+    finally:
+        pool.putconn(conn)
+
+    def fr(n):
+        return f"{int(n):,}".replace(",", "\u202f")
+
+    return {
+        "prospects_avec_toit": fr(avec_toit),
+        "toits_distincts": fr(distincts),
+        "surface_totale": fr(surface),
+        "puissance_totale": fr(kwc),
+        "batiments_base": fr(batiments),
+    }
+
+
 @app.route("/")
+def landing():
+    """Page de présentation. Les chiffres viennent de la base : une vitrine qui
+    afficherait des valeurs figées vieillirait mal."""
+    logo = "img/logo-netis.png" if os.path.exists(
+        os.path.join(app.static_folder, "img", "logo-netis.png")
+    ) else None
+    return render_template("landing.html", stats=_landing_stats(), logo=logo)
+
+
+@app.route("/carte")
 def index():
     return render_template("index.html")
 

@@ -1,0 +1,364 @@
+/* Page d'accueil — palette prélevée sur le logo Netis :
+   bleu #077ea3 → turquoise #2b9d86 → vert #3db258 → lime #a4c93c.
+   Le logo n'a pas de transparence : la barre du haut reste claire pour qu'il
+   s'y pose sans cadre blanc visible. */
+
+:root {
+  --bleu:      #077ea3;
+  --turquoise: #2b9d86;
+  --vert:      #3db258;
+  --lime:      #a4c93c;
+
+  --degrade: linear-gradient(100deg, var(--bleu) 0%, var(--turquoise) 42%, var(--vert) 72%, var(--lime) 100%);
+
+  --nuit:      #071319;
+  --nuit-doux: #0e1e26;
+  --nuit-trait:#1b3039;
+
+  --ink:      #0f1b20;
+  --ink-doux: #47585f;
+  --ink-pale: #7d9098;
+
+  --fond:    #f6f9f9;
+  --surface: #ffffff;
+  --trait:   #dde7e8;
+  --trait-pale: #edf3f3;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--fond);
+  color: var(--ink);
+  font-family: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; }
+
+h1, h2, h3, .fig b, .step-n, .brand-mark {
+  font-family: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+}
+
+/* ---------- barre du haut ---------- */
+
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 10px 34px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--trait);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.brand { display: flex; align-items: center; gap: 14px; text-decoration: none; }
+.brand-logo { height: 46px; width: auto; display: block; }
+
+.brand-mark {
+  font-weight: 800;
+  font-size: 21px;
+  letter-spacing: 0.1em;
+  background: var(--degrade);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.brand-app {
+  font-size: 13.5px;
+  color: var(--ink-pale);
+  padding-left: 14px;
+  border-left: 1px solid var(--trait);
+}
+
+.nav-links { display: flex; align-items: center; gap: 6px; }
+
+.nav-links a {
+  padding: 8px 14px;
+  border-radius: 7px;
+  font-size: 14.5px;
+  font-weight: 500;
+  text-decoration: none;
+  color: var(--ink-doux);
+}
+.nav-links a:hover, .nav-links a:focus-visible { background: var(--trait-pale); color: var(--ink); }
+
+.nav-cta {
+  background: var(--degrade);
+  color: #fff !important;
+  font-weight: 600 !important;
+  padding: 9px 18px !important;
+  margin-left: 6px;
+}
+.nav-cta:hover, .nav-cta:focus-visible { filter: brightness(1.08); }
+
+/* ---------- hero ---------- */
+
+.hero {
+  position: relative;
+  background: var(--nuit);
+  color: #eaf3f4;
+  overflow: hidden;
+  padding: 96px 34px 0;
+}
+
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.hero-pattern { opacity: 0.12; color: #9fdce8; fill: currentColor; }
+
+.hero-inner { position: relative; max-width: 1080px; margin: 0 auto; }
+
+.eyebrow {
+  margin: 0 0 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--lime);
+}
+
+.hero h1 {
+  margin: 0 0 26px;
+  font-size: clamp(2.4rem, 6.4vw, 4.6rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  font-weight: 800;
+  text-wrap: balance;
+}
+
+.hero h1 em {
+  font-style: normal;
+  background: var(--degrade);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.lede {
+  max-width: 58ch;
+  margin: 0 0 38px;
+  font-size: 1.12rem;
+  color: #9fb8bf;
+}
+
+.cta { display: flex; flex-wrap: wrap; gap: 12px; padding-bottom: 96px; }
+
+.btn {
+  display: inline-block;
+  padding: 13px 26px;
+  border-radius: 9px;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+
+.btn-primary { background: var(--degrade); color: #fff; }
+.btn-primary:hover, .btn-primary:focus-visible { filter: brightness(1.1); }
+
+.btn-ghost { color: #dcecee; border-color: var(--nuit-trait); background: rgba(255,255,255,0.03); }
+.btn-ghost:hover, .btn-ghost:focus-visible { border-color: var(--turquoise); color: #fff; }
+
+/* chiffres, à cheval sur la bordure du hero */
+
+.figures {
+  position: relative;
+  z-index: 5;
+  max-width: 1080px;
+  margin: -46px auto 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  background: var(--surface);
+  border: 1px solid var(--trait);
+  border-radius: 12px;
+  box-shadow: 0 18px 42px -22px rgba(7,30,38,0.5);
+  overflow: hidden;
+}
+
+.fig { padding: 20px 24px; border-right: 1px solid var(--trait-pale); }
+.fig:last-child { border-right: none; }
+
+.fig b {
+  display: block;
+  font-size: 1.85rem;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.fig.accent b {
+  background: var(--degrade);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.fig span { display: block; margin-top: 3px; font-size: 12.5px; color: var(--ink-pale); }
+
+/* ---------- corps ---------- */
+
+main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
+
+.sec-title {
+  font-size: clamp(1.6rem, 3.6vw, 2.3rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
+  margin: 0 0 34px;
+  text-wrap: balance;
+}
+
+/* étapes */
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
+  gap: 20px;
+}
+
+.steps li {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--trait);
+  border-radius: 12px;
+  padding: 24px 22px;
+  overflow: hidden;
+}
+.steps li::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--degrade);
+  opacity: 0.85;
+}
+
+.step-n {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--turquoise);
+  margin-bottom: 12px;
+}
+
+.steps h3 { margin: 0 0 8px; font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
+.steps p { margin: 0; font-size: 14.5px; color: var(--ink-doux); }
+
+/* panneaux */
+
+.panels {
+  padding: 84px 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.panel {
+  position: relative;
+  display: block;
+  text-decoration: none;
+  background: var(--surface);
+  border: 1px solid var(--trait);
+  border-radius: 14px;
+  padding: 30px 28px;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.panel:hover, .panel:focus-visible {
+  transform: translateY(-3px);
+  border-color: transparent;
+  box-shadow: 0 20px 40px -24px rgba(7,60,80,0.55);
+}
+
+.panel-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bleu);
+  margin-bottom: 14px;
+}
+.panel-dash .panel-tag { color: var(--vert); }
+
+.panel h3 { margin: 0 0 10px; font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; }
+.panel p { margin: 0 0 20px; font-size: 14.8px; color: var(--ink-doux); }
+
+.panel-go { font-size: 14.5px; font-weight: 600; color: var(--turquoise); }
+.panel-go::after { content: " →"; }
+
+/* sources */
+
+.sources { padding: 84px 0 0; }
+
+.src-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(224px, 1fr));
+  gap: 20px;
+}
+
+.src { border-left: 3px solid var(--trait); padding: 4px 0 4px 16px; }
+.src-osm  { border-left-color: var(--vert); }
+.src-ms   { border-left-color: var(--bleu); }
+.src-esri { border-left-color: var(--turquoise); }
+.src-man  { border-left-color: var(--lime); }
+
+.src b { display: block; font-size: 14.8px; font-weight: 600; margin-bottom: 5px; }
+.src span { font-size: 13.6px; color: var(--ink-doux); }
+
+/* ---------- pied ---------- */
+
+.foot {
+  border-top: 1px solid var(--trait);
+  background: var(--surface);
+}
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 26px 34px 34px;
+  font-size: 13.5px;
+  color: var(--ink-pale);
+}
+.foot-logo { height: 34px; width: auto; display: block; }
+
+.foot-brand {
+  font-family: "Bricolage Grotesque", sans-serif;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  background: var(--degrade);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.foot-links { margin-left: auto; display: flex; gap: 16px; }
+.foot-links a { text-decoration: none; }
+.foot-links a:hover { color: var(--turquoise); }
+
+@media (max-width: 640px) {
+  .nav { padding: 12px 18px; }
+  .brand-app { display: none; }
+  .hero { padding: 64px 18px 0; }
+  main { padding: 104px 18px 72px; }
+  .foot { padding: 22px 18px 30px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel { transition: none; }
+}

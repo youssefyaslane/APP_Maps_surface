@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Netis — Prospection solaire</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='landing.css') }}" />
+</head>
+<body>
+
+  <header class="nav">
+    <a class="brand" href="/">
+      {# Dépose ton logo dans static/logo-netis.svg (ou .png) : il remplace
+         automatiquement le logotype ci-dessous, sans rien changer d'autre. #}
+      {% if logo %}
+        <img class="brand-logo" src="{{ url_for('static', filename=logo) }}" alt="Netis" />
+      {% else %}
+        <span class="brand-mark">NETIS</span>
+      {% endif %}
+      <span class="brand-app">Prospection solaire</span>
+    </a>
+    <nav class="nav-links">
+      <a href="/carte">Carte</a>
+      <a href="/dashboard">Prospects</a>
+      <a class="nav-cta" href="/dashboard">Ouvrir l'outil</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <svg class="hero-bg" aria-hidden="true" preserveAspectRatio="xMidYMid slice" viewBox="0 0 1200 700">
+      <defs>
+        <pattern id="toits" width="220" height="220" patternUnits="userSpaceOnUse" patternTransform="rotate(-18)">
+          <rect x="10"  y="14"  width="62" height="38" rx="2"/>
+          <rect x="86"  y="10"  width="34" height="52" rx="2"/>
+          <rect x="134" y="22"  width="70" height="26" rx="2"/>
+          <rect x="16"  y="70"  width="44" height="60" rx="2"/>
+          <rect x="74"  y="80"  width="96" height="34" rx="2"/>
+          <rect x="182" y="66"  width="28" height="72" rx="2"/>
+          <rect x="12"  y="146" width="82" height="30" rx="2"/>
+          <rect x="108" y="130" width="40" height="44" rx="2"/>
+          <rect x="160" y="152" width="52" height="56" rx="2"/>
+          <rect x="30"  y="188" width="60" height="22" rx="2"/>
+        </pattern>
+        <radialGradient id="lueur" cx="76%" cy="14%" r="64%">
+          <stop offset="0%"   stop-color="#a4c93c" stop-opacity="0.26"/>
+          <stop offset="38%"  stop-color="#3db258" stop-opacity="0.14"/>
+          <stop offset="70%"  stop-color="#077ea3" stop-opacity="0.10"/>
+          <stop offset="100%" stop-color="#077ea3" stop-opacity="0"/>
+        </radialGradient>
+      </defs>
+      <rect width="1200" height="700" fill="url(#toits)" class="hero-pattern"/>
+      <rect width="1200" height="700" fill="url(#lueur)"/>
+    </svg>
+
+    <div class="hero-inner">
+      <p class="eyebrow">Casablanca · toitures industrielles</p>
+      <h1>Trouver les toits<br />qui valent un<br /><em>coup de téléphone.</em></h1>
+      <p class="lede">
+        L'outil croise vos entreprises avec les empreintes de bâtiments d'OpenStreetMap
+        et de Microsoft, mesure chaque toiture, et classe vos prospects par potentiel
+        photovoltaïque.
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="/dashboard">Voir les prospects classés</a>
+        <a class="btn btn-ghost" href="/carte">Explorer la carte</a>
+      </div>
+    </div>
+
+  </section>
+
+    <div class="figures">
+      <div class="fig"><b>{{ stats.prospects_avec_toit }}</b><span>prospects avec toit</span></div>
+      <div class="fig"><b>{{ stats.toits_distincts }}</b><span>toitures distinctes</span></div>
+      <div class="fig"><b>{{ stats.surface_totale }}</b><span>m² mesurés</span></div>
+      <div class="fig accent"><b>{{ stats.puissance_totale }}</b><span>kWc installables</span></div>
+    </div>
+
+  <main>
+
+    <section class="how">
+      <h2 class="sec-title">De la coordonnée GPS<br />au coup de téléphone</h2>
+      <ol class="steps">
+        <li>
+          <span class="step-n">01</span>
+          <h3>Les entreprises</h3>
+          <p>Importées depuis vos fichiers de prospection : nom, secteur, adresse, téléphone, coordonnées.</p>
+        </li>
+        <li>
+          <span class="step-n">02</span>
+          <h3>Le toit</h3>
+          <p>L'outil cherche le bâtiment sous chaque entreprise parmi {{ stats.batiments_base }} empreintes en base — OpenStreetMap d'abord, Microsoft ensuite.</p>
+        </li>
+        <li>
+          <span class="step-n">03</span>
+          <h3>Le potentiel</h3>
+          <p>La surface devient panneaux et kilowatts-crête. Une toiture partagée entre plusieurs sociétés n'est comptée qu'une fois.</p>
+        </li>
+        <li>
+          <span class="step-n">04</span>
+          <h3>La correction</h3>
+          <p>Là où aucune source ne connaît le bâtiment, un clic le détoure par analyse de l'imagerie satellite. L'opérateur corrige, puis valide.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section class="panels">
+      <a class="panel panel-map" href="/carte">
+        <span class="panel-tag">Carte</span>
+        <h3>Explorer le terrain</h3>
+        <p>Bâtiments et entreprises sur l'imagerie satellite. Survolez un toit pour sa surface, cliquez pour le détourer, tracez-le à la main quand il manque.</p>
+        <span class="panel-go">Ouvrir la carte</span>
+      </a>
+      <a class="panel panel-dash" href="/dashboard">
+        <span class="panel-tag">Prospects</span>
+        <h3>Préparer les appels</h3>
+        <p>La liste classée par puissance, filtrable par ville et par secteur, avec les contacts et le signalement des toitures partagées. Export CSV.</p>
+        <span class="panel-go">Voir la liste</span>
+      </a>
+    </section>
+
+    <section class="sources">
+      <h2 class="sec-title">D'où viennent les données</h2>
+      <div class="src-grid">
+        <div class="src src-osm">
+          <b>OpenStreetMap</b>
+          <span>Contours cartographiés par des humains, ingérés localement depuis un extrait Geofabrik.</span>
+        </div>
+        <div class="src src-ms">
+          <b>Microsoft ML Buildings</b>
+          <span>Empreintes détectées automatiquement, là où OpenStreetMap ne couvre pas.</span>
+        </div>
+        <div class="src src-esri">
+          <b>Imagerie Esri</b>
+          <span>Vue satellite à 0,31 m par pixel, base de la détection assistée.</span>
+        </div>
+        <div class="src src-man">
+          <b>Tracé manuel</b>
+          <span>Le dernier recours, quand aucune source ne connaît le bâtiment.</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="foot">
+    {% if logo %}
+      <img class="foot-logo" src="{{ url_for('static', filename=logo) }}" alt="Netis" />
+    {% else %}
+      <span class="foot-brand">NETIS</span>
+    {% endif %}
+    <span class="foot-txt">Prospection photovoltaïque · Casablanca</span>
+    <span class="foot-links">
+      <a href="/carte">Carte</a>
+      <a href="/dashboard">Prospects</a>
+    </span>
+  </footer>
+
+</body>
+</html>
