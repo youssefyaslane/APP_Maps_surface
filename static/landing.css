@@ -97,7 +97,11 @@ h1, h2, h3, .fig b, .step-n, .brand-mark {
   padding: 9px 18px !important;
   margin-left: 6px;
 }
-.nav-cta:hover, .nav-cta:focus-visible { filter: brightness(1.08); }
+.nav-links a.nav-cta:hover, .nav-links a.nav-cta:focus-visible {
+  background: var(--degrade);
+  color: #fff;
+  filter: brightness(1.08);
+}
 
 /* ---------- hero ---------- */
 
@@ -119,6 +123,19 @@ h1, h2, h3, .fig b, .step-n, .brand-mark {
 .hero-pattern { opacity: 0.12; color: #9fdce8; fill: currentColor; }
 
 .hero-inner { position: relative; z-index: 2; max-width: 1080px; margin: 0 auto; }
+
+/* Entrée en fondu au chargement, décalée élément par élément. */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.eyebrow, .hero h1, .lede, .cta {
+  animation: fade-up 0.6s ease both;
+}
+.hero h1 { animation-delay: 0.08s; }
+.lede    { animation-delay: 0.16s; }
+.cta     { animation-delay: 0.24s; }
 
 .eyebrow {
   margin: 0 0 20px;
@@ -163,13 +180,14 @@ h1, h2, h3, .fig b, .step-n, .brand-mark {
   font-weight: 600;
   text-decoration: none;
   border: 1px solid transparent;
+  transition: transform 0.15s ease, filter 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .btn-primary { background: var(--degrade); color: #fff; }
-.btn-primary:hover, .btn-primary:focus-visible { filter: brightness(1.1); }
+.btn-primary:hover, .btn-primary:focus-visible { filter: brightness(1.1); transform: translateY(-1px); }
 
 .btn-ghost { color: #dcecee; border-color: var(--nuit-trait); background: rgba(255,255,255,0.03); }
-.btn-ghost:hover, .btn-ghost:focus-visible { border-color: var(--turquoise); color: #fff; }
+.btn-ghost:hover, .btn-ghost:focus-visible { border-color: var(--turquoise); color: #fff; transform: translateY(-1px); }
 
 /* chiffres, à cheval sur la bordure du hero */
 
@@ -360,7 +378,8 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .panel { transition: none; }
+  .panel, .btn, .cible, .lien-carte { transition: none; }
+  .eyebrow, .hero h1, .lede, .cta, .cible { animation: none; opacity: 1; transform: none; }
 }
 
 /* ---------- outil interne : cibles du moment et état de la base ---------- */
@@ -399,7 +418,16 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
   gap: 20px;
   padding: 16px 22px;
   background: var(--surface);
+  animation: fade-up 0.5s ease both;
+  transition: background 0.15s ease;
 }
+.cible:hover { background: var(--trait-pale); }
+
+.cible:nth-child(1) { animation-delay: 0.30s; }
+.cible:nth-child(2) { animation-delay: 0.36s; }
+.cible:nth-child(3) { animation-delay: 0.42s; }
+.cible:nth-child(4) { animation-delay: 0.48s; }
+.cible:nth-child(5) { animation-delay: 0.54s; }
 
 .cible-rang {
   font-family: "Bricolage Grotesque", sans-serif;
@@ -444,6 +472,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
   padding: 6px 12px;
   border: 1px solid var(--trait);
   border-radius: 7px;
+  transition: border-color 0.15s ease, color 0.15s ease;
 }
 .lien-carte:hover, .lien-carte:focus-visible { border-color: var(--turquoise); color: var(--turquoise); }
 
