@@ -17,11 +17,19 @@ html, body {
   color: #fff;
 }
 
+/* Ramène à l'accueil (comme la page d'accueil elle-même) : c'est maintenant
+   un lien, pas juste un bloc décoratif — donc on efface les styles de lien
+   par défaut (couleur, soulignement) pour que le titre et le sous-titre
+   gardent leur apparence normale. */
 .dash-brand {
   display: flex;
   align-items: center;
   gap: 14px;
+  text-decoration: none;
+  color: inherit;
 }
+
+.dash-brand:hover { opacity: 0.85; }
 
 /* Le logo Netis a un fond blanc opaque (pas de vraie transparence) : sur le
    vert plein de l'en-tête, il lui faut sa propre pastille claire plutôt que
