@@ -28,7 +28,23 @@ html, body {
   opacity: 0.85;
 }
 
-.header-links { display: flex; gap: 10px; }
+.header-links { display: flex; align-items: center; gap: 10px; }
+
+.logout-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logout-form .current-user {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.logout-btn {
+  cursor: pointer;
+  font: inherit;
+}
 
 .btn-map {
   background: rgba(255, 255, 255, 0.15);

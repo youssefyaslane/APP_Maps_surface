@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Comptes — Netis Prospection solaire</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}" />
+</head>
+<body>
+  <header class="dash-header">
+    <div>
+      <h1>👤 Comptes</h1>
+      <p class="subtitle">Créer un accès pour un commercial ou un autre administrateur</p>
+    </div>
+    <div class="header-links">
+      <a class="btn-map" href="/">🏠 Accueil</a>
+      {% if current_user %}
+        <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+          <span class="current-user">{{ current_user.display_name }}</span>
+          <button type="submit" class="btn-map logout-btn">Déconnexion</button>
+        </form>
+      {% endif %}
+    </div>
+  </header>
+
+  <main class="admin-main">
+    <section class="admin-form-card">
+      <h2>Nouveau compte</h2>
+      {% if error %}
+        <p class="admin-error" role="alert">{{ error }}</p>
+      {% endif %}
+      <form method="post" class="admin-form">
+        <label>
+          <span>Identifiant</span>
+          <input type="text" name="username" required autocomplete="off" />
+        </label>
+        <label>
+          <span>Nom affiché</span>
+          <input type="text" name="display_name" placeholder="Par défaut : l'identifiant" />
+        </label>
+        <label>
+          <span>Mot de passe</span>
+          <input type="password" name="password" required autocomplete="new-password" />
+        </label>
+        <label>
+          <span>Confirmer</span>
+          <input type="password" name="confirm" required autocomplete="new-password" />
+        </label>
+        <label class="admin-checkbox">
+          <input type="checkbox" name="is_admin" />
+          <span>Compte administrateur (peut créer d'autres comptes)</span>
+        </label>
+        <button type="submit">Créer le compte</button>
+      </form>
+    </section>
+
+    <section class="admin-list-card">
+      <h2>Comptes existants ({{ users | length }})</h2>
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Identifiant</th>
+            <th>Nom affiché</th>
+            <th>Rôle</th>
+            <th>Créé le</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td>{{ u.username }}</td>
+            <td>{{ u.display_name or "—" }}</td>
+            <td>{% if u.is_admin %}<span class="admin-badge">Administrateur</span>{% else %}Commercial{% endif %}</td>
+            <td>{{ u.created_at.strftime("%d/%m/%Y") }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,110 @@
+.admin-main {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 20px;
+  align-items: start;
+  padding: 20px 28px 32px;
+}
+
+@media (max-width: 760px) {
+  .admin-main {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-form-card,
+.admin-list-card {
+  background: #fff;
+  border-radius: 10px;
+  padding: 20px 22px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.admin-form-card h2,
+.admin-list-card h2 {
+  margin: 0 0 16px;
+  font-size: 16px;
+  color: #1f5130;
+}
+
+.admin-error {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ffebee;
+  color: #b71c1c;
+  font-size: 13px;
+}
+
+.admin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.admin-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  color: #37474f;
+}
+
+.admin-form input[type="text"],
+.admin-form input[type="password"] {
+  padding: 9px 12px;
+  border: 1px solid #cfd8dc;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.admin-checkbox {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.admin-form button {
+  margin-top: 4px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  background: #2e7d32;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-form button:hover {
+  background: #256428;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.admin-table th {
+  text-align: left;
+  padding: 10px 12px;
+  background: #eceff1;
+  color: #37474f;
+  font-weight: 600;
+}
+
+.admin-table td {
+  padding: 10px 12px;
+  border-top: 1px solid #eceff1;
+}
+
+.admin-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  background: #c8e6c9;
+  color: #1b5e20;
+}

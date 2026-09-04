@@ -15,6 +15,15 @@
     <div class="header-links">
       <a class="btn-map" href="/">🏠 Accueil</a>
       <a class="btn-map" href="/carte">🗺️ Retour à la carte</a>
+      {% if current_user and current_user.is_admin %}
+        <a class="btn-map" href="/admin/users">👤 Comptes</a>
+      {% endif %}
+      {% if current_user %}
+        <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+          <span class="current-user">{{ current_user.display_name }}</span>
+          <button type="submit" class="btn-map logout-btn">Déconnexion</button>
+        </form>
+      {% endif %}
     </div>
   </header>
 

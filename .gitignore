@@ -8,6 +8,11 @@ mobile_sam.pt
 Data_clients/
 .env
 
+# Sauvegardes de la base (scripts/backup_db.sh) : contiennent les coordonnées
+# complètes des entreprises et les identifiants des comptes (hachés, mais tout
+# de même hors dépôt par prudence).
+backups/
+
 # Scripts de scraping : contiennent des tokens API en clair + des fichiers clients
 scraping_client/
 

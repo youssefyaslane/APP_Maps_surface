@@ -29,6 +29,15 @@
     </form>
     <button id="points-select-btn" class="zone-btn" type="button">✏️ Tracer un toit</button>
     <a href="/dashboard" class="zone-btn dashboard-link">☀️ Prospects solaires</a>
+    {% if current_user and current_user.is_admin %}
+      <a href="/admin/users" class="zone-btn">👤 Comptes</a>
+    {% endif %}
+    {% if current_user %}
+      <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+        <span class="current-user">{{ current_user.display_name }}</span>
+        <button type="submit" class="zone-btn logout-btn">Déconnexion</button>
+      </form>
+    {% endif %}
     <p class="hint" id="hint">Survolez un bâtiment (OSM) pour voir sa surface, ou cliquez n'importe où pour une détection IA par imagerie satellite.</p>
   </header>
 

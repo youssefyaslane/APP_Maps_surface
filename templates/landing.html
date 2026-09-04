@@ -25,6 +25,15 @@
     <nav class="nav-links">
       <a href="/carte">Carte</a>
       <a class="nav-cta" href="/dashboard">Liste des prospects</a>
+      {% if current_user and current_user.is_admin %}
+        <a href="/admin/users">Comptes</a>
+      {% endif %}
+      {% if current_user %}
+        <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+          <span class="current-user">{{ current_user.display_name }}</span>
+          <button type="submit" class="logout-link">Déconnexion</button>
+        </form>
+      {% endif %}
     </nav>
   </header>
 

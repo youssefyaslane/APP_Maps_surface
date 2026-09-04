@@ -8,22 +8,59 @@ import secrets
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import timedelta
+from functools import wraps
 
 import psycopg2
 import psycopg2.pool
 import requests
-from flask import Flask, Response, jsonify, render_template, request
+from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.security import check_password_hash
 
 import segmentation
 from domain.solar import config as solar_config
 from domain.solar import estimate_solar as _estimate_solar
 
 app = Flask(__name__)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 
 CACHE_DIR = os.environ.get("CACHE_DIR", os.path.dirname(__file__))
 os.makedirs(CACHE_DIR, exist_ok=True)
 DISK_CACHE_PATH = os.path.join(CACHE_DIR, "tile_cache.json")
 _disk_cache_lock = threading.Lock()
+
+
+def _get_secret_key():
+    """Clé de signature des sessions Flask.
+
+    `SECRET_KEY` prime si elle est fournie. Sinon, une clé aléatoire est générée
+    une fois puis écrite dans CACHE_DIR (le volume `cache_data`, déjà utilisé
+    pour le modèle IA et le cache OSM) : elle survit ainsi aux redémarrages du
+    conteneur sans que personne n'ait à la configurer, et sans se retrouver en
+    clair dans docker-compose.yml comme le sont aujourd'hui les identifiants de
+    la base. La régénérer déconnecte tout le monde — c'est le seul effet de
+    bord d'un volume perdu ou d'un CACHE_DIR changé.
+    """
+    env_key = os.environ.get("SECRET_KEY")
+    if env_key:
+        return env_key
+
+    path = os.path.join(CACHE_DIR, "secret_key")
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            key = f.read().strip()
+        if key:
+            return key
+
+    key = secrets.token_hex(32)
+    tmp_path = path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        f.write(key)
+    os.replace(tmp_path, path)
+    return key
+
+
+app.secret_key = _get_secret_key()
 
 # Toits détectés par IA (clic simple ou zone), persistés dans PostgreSQL pour
 # rester affichés d'une session à l'autre, et supprimables par l'utilisateur.
@@ -143,8 +180,232 @@ def _init_db():
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_ms_buildings_geom_hash "
                 "ON ms_buildings (geom_hash)"
             )
+            # Comptes nominatifs des commerciaux/opérateurs. Créés via
+            # `python -m scripts.create_user`, pas d'inscription en ligne : c'est
+            # un outil interne, pas un service public.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    display_name TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+            # Seul un compte admin peut créer d'autres comptes (page /admin/users).
+            # Le tout premier compte se crée en ligne de commande
+            # (`scripts.create_user --admin`) : une interface qui exige d'être
+            # admin pour créer un compte ne peut pas créer le premier admin.
+            cur.execute(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false"
+            )
+            # Qui a détecté/tracé ce toit. Nullable : les segments créés avant
+            # l'ajout des comptes n'ont pas d'auteur connu, et ça ne doit pas les
+            # invalider. ON DELETE SET NULL plutôt que RESTRICT : supprimer un
+            # compte ne doit pas bloquer sur les toits qu'il a laissés derrière lui.
+            cur.execute(
+                "ALTER TABLE ia_segments ADD COLUMN IF NOT EXISTS created_by INTEGER "
+                "REFERENCES users(id) ON DELETE SET NULL"
+            )
+            # Trace qui a créé ou supprimé un toit. Une ligne d'ia_segments
+            # disparaît à la suppression et emporterait son auteur avec elle ;
+            # cette table existe précisément pour que la suppression, elle,
+            # reste traçable après coup.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                    action TEXT NOT NULL,
+                    entity TEXT NOT NULL,
+                    entity_id INTEGER,
+                    details JSONB,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log (entity, entity_id)"
+            )
     finally:
         pool.putconn(conn)
+
+
+def _find_user_by_username(username):
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, username, password_hash, display_name, is_admin FROM users WHERE username = %s",
+                (username,),
+            )
+            row = cur.fetchone()
+    finally:
+        pool.putconn(conn)
+    if row is None:
+        return None
+    return {
+        "id": row[0], "username": row[1], "password_hash": row[2],
+        "display_name": row[3], "is_admin": row[4],
+    }
+
+
+def _list_users():
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, username, display_name, is_admin, created_at FROM users ORDER BY username"
+            )
+            rows = cur.fetchall()
+    finally:
+        pool.putconn(conn)
+    return [
+        {"id": r[0], "username": r[1], "display_name": r[2], "is_admin": r[3], "created_at": r[4]}
+        for r in rows
+    ]
+
+
+def _create_user(username, password, display_name=None, is_admin=False, created_by=None):
+    """Crée un compte, ou renvoie None si l'identifiant existe déjà.
+
+    Contrairement à `scripts/create_user.py` (pensé pour la ligne de commande,
+    où relancer la commande pour changer un mot de passe oublié est le geste
+    naturel), la page d'administration ne doit pas silencieusement écraser un
+    compte existant si on se trompe d'identifiant en le créant : mieux vaut un
+    message d'erreur explicite qu'un mot de passe remplacé par erreur.
+    """
+    from werkzeug.security import generate_password_hash
+
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM users WHERE username = %s", (username,))
+            if cur.fetchone() is not None:
+                return None
+            cur.execute(
+                """
+                INSERT INTO users (username, password_hash, display_name, is_admin)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+                """,
+                (username, generate_password_hash(password), display_name or username, is_admin),
+            )
+            new_id = cur.fetchone()[0]
+            _log_audit(
+                cur, created_by, "user_created", "users", new_id,
+                {"username": username, "is_admin": is_admin},
+            )
+            return new_id
+    finally:
+        pool.putconn(conn)
+
+
+def _log_audit(cur, user_id, action, entity, entity_id, details=None):
+    """Enregistre une action dans le même curseur/transaction que la mutation
+    qu'elle décrit : soit les deux sont committées ensemble, soit aucune."""
+    cur.execute(
+        """
+        INSERT INTO audit_log (user_id, action, entity, entity_id, details)
+        VALUES (%s, %s, %s, %s, %s)
+        """,
+        (user_id, action, entity, entity_id, json.dumps(details) if details is not None else None),
+    )
+
+
+# Routes accessibles sans être connecté : la page de connexion elle-même, et
+# les fichiers statiques (CSS/JS/images — bloquer leur chargement casserait la
+# page de connexion en boucle). Tout le reste est un outil interne et ne doit
+# rien montrer à un visiteur non authentifié, y compris la page d'accueil.
+PUBLIC_ENDPOINTS = {"login", "static"}
+
+
+@app.before_request
+def _require_login():
+    if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
+        return
+    if session.get("user_id") is not None:
+        return
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Authentification requise"}), 401
+    return redirect(url_for("login", next=request.path))
+
+
+def _safe_next_url(raw):
+    """N'accepte qu'un chemin relatif interne comme redirection post-connexion.
+
+    Un `next` non filtré transformerait la page de connexion en redirecteur
+    ouvert : `?next=https://site-piege.example` renverrait l'utilisateur, une
+    fois authentifié, vers un site externe qui peut ressembler à s'y méprendre
+    à l'application.
+    """
+    if not raw or not raw.startswith("/") or raw.startswith("//"):
+        return None
+    return raw
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        return render_template("login.html", error=None, next=request.args.get("next", ""))
+
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "")
+    next_url = _safe_next_url(request.form.get("next", ""))
+
+    user = _find_user_by_username(username) if username else None
+    if user is None or not check_password_hash(user["password_hash"], password):
+        return render_template("login.html", error="Identifiants invalides", next=next_url or ""), 401
+
+    session.clear()
+    session.permanent = True
+    session["user_id"] = user["id"]
+    session["username"] = user["username"]
+    session["display_name"] = user["display_name"] or user["username"]
+    session["is_admin"] = user["is_admin"]
+    return redirect(next_url or url_for("landing"))
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
+@app.context_processor
+def _inject_current_user():
+    if session.get("user_id") is None:
+        return {"current_user": None}
+    return {
+        "current_user": {
+            "username": session.get("username"),
+            "display_name": session.get("display_name"),
+            "is_admin": bool(session.get("is_admin")),
+        }
+    }
+
+
+def _admin_required(view):
+    """Réserve une route aux comptes admin.
+
+    Un accès sans droit admin renvoie 403 plutôt que de rediriger vers
+    /login (qui laisserait croire, à tort, qu'il suffit de se reconnecter) —
+    l'utilisateur est déjà connecté, il n'a simplement pas ce droit."""
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not session.get("is_admin"):
+            return render_template(
+                "error.html",
+                code=403,
+                message="Réservé aux comptes administrateur.",
+            ), 403
+        return view(*args, **kwargs)
+    return wrapped
 
 
 def _polygon_centroid(coords):
@@ -181,7 +442,7 @@ def _point_inside_polygon_guaranteed(coords):
     return best_point
 
 
-def _store_ia_segment(polygon, area_m2, source="ia-segmentation"):
+def _store_ia_segment(polygon, area_m2, source="ia-segmentation", created_by=None):
     """Sauvegarde un toit (détecté par IA ou tracé manuellement), ou renvoie
     l'entrée existante si déjà stocké au même endroit."""
     lon, lat = _polygon_centroid(polygon)
@@ -208,13 +469,17 @@ def _store_ia_segment(polygon, area_m2, source="ia-segmentation"):
 
             cur.execute(
                 """
-                INSERT INTO ia_segments (polygon, area_m2, centroid_lon, centroid_lat, source)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO ia_segments (polygon, area_m2, centroid_lon, centroid_lat, source, created_by)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (json.dumps(polygon), area_m2, lon, lat, source),
+                (json.dumps(polygon), area_m2, lon, lat, source, created_by),
             )
             new_id = cur.fetchone()[0]
+            _log_audit(
+                cur, created_by, "segment_created", "ia_segments", new_id,
+                {"source": source, "area_m2": area_m2},
+            )
             _apply_solar_for_polygon(cur, polygon, area_m2, source, f"ia:{new_id}")
             return {"id": new_id, "polygon": polygon, "area_m2": area_m2, "source": source}
     finally:
@@ -240,20 +505,32 @@ def _query_ia_segments(bbox):
     return [{"id": r[0], "polygon": r[1], "area_m2": r[2], "source": r[3]} for r in rows]
 
 
-def _delete_ia_segment(seg_id):
+def _delete_ia_segment(seg_id, deleted_by=None):
     """Supprime un toit détecté/tracé, puis recalcule le potentiel solaire des
-    entreprises qui s'appuyaient dessus (un autre toit peut exister dessous)."""
+    entreprises qui s'appuyaient dessus (un autre toit peut exister dessous).
+
+    La suppression était jusqu'ici possible sans authentification ni trace :
+    n'importe qui sur le réseau pouvait effacer un toit tracé à la main, sans
+    que personne ne sache ni qui ni quand. `_log_audit` s'exécute dans la même
+    transaction que le DELETE : la suppression et sa trace sont commises
+    ensemble, ou aucune des deux ne l'est."""
     pool = _get_db_pool()
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:
-            cur.execute("SELECT polygon FROM ia_segments WHERE id = %s", (seg_id,))
+            cur.execute(
+                "SELECT polygon, area_m2, source FROM ia_segments WHERE id = %s", (seg_id,)
+            )
             row = cur.fetchone()
             if row is None:
                 return False
-            polygon = row[0]
+            polygon, area_m2, source = row
 
             cur.execute("DELETE FROM ia_segments WHERE id = %s", (seg_id,))
+            _log_audit(
+                cur, deleted_by, "segment_deleted", "ia_segments", seg_id,
+                {"source": source, "area_m2": area_m2},
+            )
             affected = _companies_inside_polygon(cur, polygon, only_computed=True, include_nearby=True)
     finally:
         pool.putconn(conn)
@@ -955,6 +1232,39 @@ def dashboard():
     return render_template("dashboard.html")
 
 
+MIN_PASSWORD_LENGTH = 8
+
+
+@app.route("/admin/users", methods=["GET", "POST"])
+@_admin_required
+def admin_users():
+    error = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        confirm = request.form.get("confirm", "")
+        display_name = request.form.get("display_name", "").strip()
+        is_admin = request.form.get("is_admin") == "on"
+
+        if not username:
+            error = "L'identifiant est obligatoire."
+        elif len(password) < MIN_PASSWORD_LENGTH:
+            error = f"Mot de passe trop court ({MIN_PASSWORD_LENGTH} caractères minimum)."
+        elif password != confirm:
+            error = "Les deux mots de passe ne correspondent pas."
+        else:
+            new_id = _create_user(
+                username, password, display_name or None, is_admin,
+                created_by=session.get("user_id"),
+            )
+            if new_id is None:
+                error = f"L'identifiant « {username} » existe déjà."
+            else:
+                return redirect(url_for("admin_users"))
+
+    return render_template("admin_users.html", users=_list_users(), error=error)
+
+
 @app.route("/api/cities")
 def api_cities():
     return jsonify(
@@ -1082,7 +1392,7 @@ def api_segment():
     if result is None:
         return jsonify({"error": "Aucun bâtiment détecté à cet endroit"}), 404
 
-    stored = _store_ia_segment(result["polygon"], result["area_m2"])
+    stored = _store_ia_segment(result["polygon"], result["area_m2"], created_by=session.get("user_id"))
 
     return jsonify(
         {
@@ -1235,7 +1545,7 @@ def api_segment_commit():
     if area <= 0:
         return jsonify({"error": "Contour invalide"}), 400
 
-    stored = _store_ia_segment(polygon, round(area, 1))
+    stored = _store_ia_segment(polygon, round(area, 1), created_by=session.get("user_id"))
 
     with _seg_sessions_lock:
         _seg_sessions.pop(session_id, None)
@@ -1281,7 +1591,9 @@ def api_roof_manual():
     if area <= 0:
         return jsonify({"error": "Contour invalide"}), 400
 
-    stored = _store_ia_segment(polygon, round(area, 1), source="manual-trace")
+    stored = _store_ia_segment(
+        polygon, round(area, 1), source="manual-trace", created_by=session.get("user_id")
+    )
 
     return jsonify(
         {
@@ -1321,7 +1633,7 @@ def api_ia_segments():
 
 @app.route("/api/ia_segments/<int:seg_id>", methods=["DELETE"])
 def api_delete_ia_segment(seg_id):
-    if not _delete_ia_segment(seg_id):
+    if not _delete_ia_segment(seg_id, deleted_by=session.get("user_id")):
         return jsonify({"error": "Segmentation introuvable"}), 404
     return jsonify({"ok": True})
 

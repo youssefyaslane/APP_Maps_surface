@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ code }} — Netis Prospection solaire</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='login.css') }}" />
+</head>
+<body>
+  <main class="login-card">
+    <h1>{{ code }}</h1>
+    <p class="login-sub">{{ message }}</p>
+    <p class="login-help"><a href="{{ url_for('landing') }}">Retour à l'accueil</a></p>
+  </main>
+</body>
+</html>

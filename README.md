@@ -50,6 +50,16 @@ docker compose exec db psql -U maps -d maps
 docker compose exec web python -m pytest tests/ -q
 ```
 
+**Créer un compte** (accès requis pour tout l'outil, voir [Comptes et authentification](#comptes-et-authentification))
+```bash
+docker compose exec web python -m scripts.create_user identifiant
+```
+
+**Sauvegarder la base**
+```bash
+./scripts/backup_db.sh
+```
+
 Les tests portent sur les fonctions pures (géométrie, potentiel solaire, clauses
 de filtrage) et ne demandent ni base ni réseau. L'image embarquant une copie du
 code, il faut la reconstruire (`docker compose up -d --build web`) pour tester
@@ -225,6 +235,72 @@ Pour explorer la base de données :
 docker compose exec db psql -U maps -d maps
 ```
 
+## Comptes et authentification
+
+Toute l'application (carte, tableau de bord, page d'accueil, API) est réservée
+aux personnes connectées. Seules les routes `/login` et les fichiers statiques
+restent accessibles sans compte. Cette protection s'applique par défaut à
+**toute** route, existante ou future : elle est posée une fois pour toutes dans
+un filtre global (`before_request` dans `app.py`), pas décorateur par
+décorateur — c'est précisément ce qui manquait avant, et qui laissait
+n'importe qui sur le réseau supprimer un toit tracé à la main via
+`DELETE /api/ia_segments/<id>` sans la moindre trace.
+
+Il n'y a pas d'inscription en ligne. Une fois qu'un premier compte
+**administrateur** existe, les comptes suivants se créent depuis l'interface —
+**Comptes** dans le menu, visible seulement pour un admin, ou directement
+`/admin/users` — avec identifiant, nom affiché, mot de passe et une case à
+cocher pour donner (ou non) les droits admin au nouveau compte.
+
+Le tout premier compte, lui, ne peut pas se créer depuis cette page : elle
+exige déjà d'être admin pour y accéder. Il s'amorce en ligne de commande :
+
+```bash
+docker compose exec web python -m scripts.create_user identifiant --admin
+```
+
+Le mot de passe est saisi de façon interactive (jamais en argument de
+commande, jamais affiché à l'écran), haché avec `werkzeug.security` avant
+stockage. Relancer la commande sur un identifiant existant réinitialise son
+mot de passe sans créer de doublon ; sans `--admin` ni `--no-admin`, le statut
+administrateur d'un compte existant n'est pas modifié — reset un mot de passe
+oublié ne doit pas silencieusement retirer les droits admin de son
+propriétaire.
+
+Une session dure 30 jours. La clé qui la signe est générée automatiquement au
+premier démarrage et écrite dans le volume `cache_data` (comme le modèle IA et
+le cache OSM) : elle survit aux redémarrages sans configuration, et peut être
+imposée via la variable d'environnement `SECRET_KEY` si besoin (déploiement à
+plusieurs instances, par exemple).
+
+Chaque toit détecté par IA ou tracé manuellement enregistre son auteur
+(`ia_segments.created_by`), et chaque création ou suppression est journalisée
+dans la table `audit_log` (qui, quoi, quand) — y compris pour les toits
+supprimés, dont la ligne d'origine disparaît mais dont la trace, elle, reste.
+
+## Sauvegardes
+
+```bash
+./scripts/backup_db.sh
+```
+
+Écrit un dump compressé et daté dans `backups/` (hors dépôt — `.gitignore`),
+via `pg_dump` exécuté dans le conteneur `db`, et supprime les sauvegardes de
+plus de 14 jours. Le script s'exécute sur l'hôte, pas dans un conteneur : il
+invoque `docker compose`, et le conteneur `web` n'a pas le client `pg_dump`
+installé.
+
+Pour restaurer :
+
+```bash
+gunzip -c backups/maps_2026-01-15_030001.sql.gz | docker compose exec -T db psql -U maps -d maps
+```
+
+Une tâche planifiée (cron) sur l'hôte, exécutant ce script chaque nuit, évite
+de dépendre de la mémoire de quelqu'un pour que la sauvegarde ait
+effectivement lieu — 900 toits tracés ou détectés à la main représentent des
+semaines de travail qu'un incident de disque effacerait d'un coup sans elle.
+
 ## Architecture
 
 ```
@@ -235,13 +311,20 @@ import_companies.py     Import en masse des entreprises depuis un/des export(s) 
 import_ms_buildings.py  Import des empreintes de bâtiments Microsoft (.geojsonl) vers PostgreSQL
 compute_solar_potential.py  Calcul en masse du potentiel solaire des entreprises (alimente /dashboard)
 export_unmatched_roofs.py   Export CSV des grands toits sans entreprise connue à proximité
+create_user.py           Crée ou met à jour un compte (identifiant + mot de passe)
+backup_db.sh             Sauvegarde compressée et datée de la base, à lancer sur l'hôte
 templates/index.html    Page principale (carte Leaflet)
 templates/dashboard.html    Tableau de bord commercial (liste de prospects)
+templates/login.html    Page de connexion
+templates/admin_users.html  Page d'administration des comptes (admin uniquement)
+templates/error.html    Page d'erreur générique (403, etc.)
 static/app.js           Logique frontend (couches, tooltip, recherche, clic/zone/tracé IA, entreprises)
 static/dashboard.js     Logique du tableau de bord (stats, filtres, tableau, export)
 static/style.css        Styles de la carte
 static/dashboard.css    Styles du tableau de bord
-tests/                  Tests des fonctions pures (géométrie, solaire, filtres) — ni base ni réseau
+static/login.css        Styles de la page de connexion
+static/admin.css        Styles de la page d'administration des comptes
+tests/                  Tests des fonctions pures (géométrie, solaire, filtres, auth) — ni base ni réseau
 requirements.txt        Dépendances Python (hors torch, installé séparément)
 Dockerfile               Image de l'application
 docker-compose.yml      Orchestration (web + PostgreSQL) + volumes persistants
@@ -249,7 +332,13 @@ docker-compose.yml      Orchestration (web + PostgreSQL) + volumes persistants
 
 ### Backend (`app.py`)
 
+Toutes les routes ci-dessous exigent une session ouverte, sauf `/login` — un
+accès sans session redirige vers la page de connexion (`GET /login`,
+`POST /login`), ou renvoie `401` en JSON pour un appel `/api/...`.
+`POST /logout` ferme la session.
+
 - `GET /` — page principale
+- `GET/POST /admin/users` — liste des comptes et création d'un nouveau compte ; réservé aux comptes admin, renvoie `403` sinon
 - `GET /api/cities` — liste des villes disponibles (nom, centre, zoom)
 - `GET /api/buildings?south=&west=&north=&east=` — bâtiments OSM (GeoJSON) dans la zone demandée
 - `GET /api/segment?lon=&lat=` — détection IA du bâtiment sous le point cliqué (GeoJSON + surface), persisté en base
