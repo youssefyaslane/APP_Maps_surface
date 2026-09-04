@@ -98,6 +98,104 @@ h1, h2, h3, .fig b, .step-n, .brand-mark {
   margin-left: 6px;
 }
 
+/* Menu « Comptes » : le lien reste cliquable (ouvre /admin/users, utile au
+   clavier et au tactile où le survol n'existe pas), le survol en plus révèle
+   un aperçu des comptes existants sans avoir à quitter la page. */
+.nav-dropdown { position: relative; }
+
+.nav-dropdown-caret {
+  display: inline-block;
+  font-size: 10px;
+  margin-left: 2px;
+  opacity: 0.6;
+}
+
+.nav-dropdown-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  width: 260px;
+  background: var(--surface);
+  border: 1px solid var(--trait);
+  border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(15, 27, 32, 0.14);
+  padding: 8px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  z-index: 30;
+}
+
+.nav-dropdown:hover .nav-dropdown-panel,
+.nav-dropdown:focus-within .nav-dropdown-panel {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* Menu d'actions admin : chaque entrée est une page réservée à
+   l'administration, pas une liste de données à parcourir. Sélecteurs à deux
+   classes partout (.nav-dropdown-panel .xxx) : .nav-links a, une classe + un
+   type, l'emporterait sinon sur un simple .admin-menu-item pour le padding et
+   la couleur, sa spécificité étant légèrement supérieure. */
+.nav-dropdown-panel .admin-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.nav-dropdown-panel a.admin-menu-item:hover { background: var(--trait-pale); }
+
+.admin-menu-icon {
+  flex-shrink: 0;
+  width: 22px;
+  font-size: 16px;
+  text-align: center;
+}
+
+.admin-menu-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.nav-dropdown-panel .admin-menu-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.admin-menu-desc {
+  font-size: 11.5px;
+  color: var(--ink-pale);
+}
+
+/* Entrée pas encore active : la page n'existe pas, seul le menu l'annonce. */
+.nav-dropdown-panel .admin-menu-item.is-disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.admin-menu-soon {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--trait-pale);
+  color: var(--ink-pale);
+}
+
 /* Bloc identité : séparé des liens de navigation par sa propre pastille, pour
    qu'on distingue au premier coup d'œil « aller quelque part » de « qui je
    suis, me déconnecter ». */

@@ -25,12 +25,35 @@
     <nav class="nav-links">
       <a href="/carte">Carte</a>
       <a class="nav-cta" href="/dashboard">Liste des prospects</a>
-      {# Réservé à l'accueil : le lien vers l'administration des comptes ne se
-         répète pas sur la carte ni le tableau de bord, pour ne pas y ajouter
-         une entrée que la grande majorité des personnes connectées ne peut
-         de toute façon pas utiliser. #}
+      {# Réservé à l'accueil : ce menu ne se répète pas sur la carte ni le
+         tableau de bord, pour ne pas y ajouter une entrée que la grande
+         majorité des personnes connectées ne peut de toute façon pas
+         utiliser. Liste les pages réservées à l'administration plutôt qu'un
+         simple lien vers la création de compte — la première d'une liste
+         d'actions admin appelée à grandir (tableau de bord commerciaux, etc.). #}
       {% if current_user and current_user.is_admin %}
-        <a href="/admin/users">Comptes</a>
+        <div class="nav-dropdown">
+          <a href="/admin/users" class="nav-dropdown-trigger">Administration <span class="nav-dropdown-caret">▾</span></a>
+          <div class="nav-dropdown-panel">
+            <a class="admin-menu-item" href="/admin/users">
+              <span class="admin-menu-icon">👤</span>
+              <span class="admin-menu-text">
+                <span class="admin-menu-title">Créer un compte</span>
+                <span class="admin-menu-desc">Accès commercial ou admin</span>
+              </span>
+            </a>
+            {# Entrée volontairement inactive : la page n'existe pas encore,
+               seule l'entrée de menu est posée pour l'instant. #}
+            <span class="admin-menu-item is-disabled" aria-disabled="true">
+              <span class="admin-menu-icon">📊</span>
+              <span class="admin-menu-text">
+                <span class="admin-menu-title">Dashboard commerciaux</span>
+                <span class="admin-menu-desc">KPI par commercial</span>
+              </span>
+              <span class="admin-menu-soon">Bientôt</span>
+            </span>
+          </div>
+        </div>
       {% endif %}
       {% if current_user %}
         <div class="user-chip">
