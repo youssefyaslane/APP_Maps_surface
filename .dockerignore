@@ -7,3 +7,18 @@ tile_cache.json
 server.log
 mobile_sam.pt
 README.md
+
+# Fichiers de données et outils de scraping : ni l'un ni l'autre n'est lu par
+# l'application au démarrage (Data_clients/ se copie à la main dans le
+# conteneur au moment d'un import, voir README), donc pas de raison de les
+# faire grossir l'image à chaque build. 105 Mo + 6,4 Mo à eux deux.
+Data_clients/
+scraping_client/
+
+# Image source non optimisée (29 Mo) : seules les versions web (.webp, logos
+# .png déjà compressés) sont utilisées par la carte et servies depuis static/.
+static/img/vecteezy_*
+
+# Documentation : utile au dépôt, pas à l'image qui tourne.
+docs/
+backups/
