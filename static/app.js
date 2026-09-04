@@ -19,7 +19,14 @@ const map = L.map("map", {
   maxZoom: 22,
   maxBounds: MOROCCO_BOUNDS,
   maxBoundsViscosity: 0.8,
+  // Le zoom par défaut se place en haut à gauche, où le panneau latéral le
+  // masquait entièrement. Repositionné en bas à gauche, static/style.css
+  // l'écartant de la largeur du panneau : le bas au centre est pris par les
+  // barres d'action et la droite par le panneau entreprise.
+  zoomControl: false,
 });
+
+L.control.zoom({ position: "bottomleft" }).addTo(map);
 
 // Pane dédié pour les marqueurs d'entreprises : au-dessus des polygones
 // (bâtiments OSM, détections IA, tracés manuels) pour qu'ils restent
@@ -157,18 +164,109 @@ const companiesLayer = L.geoJSON(null, {
 
 msBuildingsLayer.addTo(map);
 
-L.control
-  .layers(
-    { "Plan": streetLayer, "Satellite": satelliteLayer },
-    {
-      "Bâtiments OpenStreetMap": buildingsLayer,
-      "Bâtiments détectés par IA": aiDetectedLayer,
-      "Toits tracés manuellement": manualTraceLayer,
-      "Entreprises": companiesLayer,
-      "Bâtiments IA (Microsoft)": msBuildingsLayer,
-    }
-  )
-  .addTo(map);
+// Couches proposées dans le panneau de gauche. La pastille de légende reprend
+// la couleur de remplissage définie plus haut : le sélecteur natif de Leaflet
+// n'affichait que des libellés, sans dire à quoi correspondait chaque couleur
+// sur la carte. `area` marque les couches dont les polygones portent une
+// surface, seules à entrer dans le calcul « Dans cette vue ».
+const OVERLAYS = [
+  { key: "osm", label: "Bâtiments OpenStreetMap", layer: buildingsLayer, color: "#66bb6a", stroke: "#2e7d32", area: true },
+  { key: "ms", label: "Bâtiments IA (Microsoft)", layer: msBuildingsLayer, color: "#ce93d8", stroke: "#7b1fa2", area: true },
+  { key: "ia", label: "Bâtiments détectés par IA", layer: aiDetectedLayer, color: "#ff8a80", stroke: "#ff5252", area: true, dashed: true },
+  { key: "manual", label: "Toits tracés manuellement", layer: manualTraceLayer, color: "#82b1ff", stroke: "#2979ff", area: true, dashed: true },
+  { key: "companies", label: "Entreprises", layer: companiesLayer, color: "#4caf50", stroke: "#1b5e20", dot: true },
+];
+
+const layerListEl = document.getElementById("layer-list");
+
+OVERLAYS.forEach((overlay) => {
+  const li = document.createElement("li");
+  li.className = "layer-item";
+
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.id = `layer-${overlay.key}`;
+  input.checked = map.hasLayer(overlay.layer);
+  input.addEventListener("change", () => {
+    if (input.checked) map.addLayer(overlay.layer);
+    else map.removeLayer(overlay.layer);
+    refreshViewStats();
+  });
+
+  const label = document.createElement("label");
+  label.setAttribute("for", input.id);
+
+  const swatch = document.createElement("span");
+  swatch.className = `layer-swatch${overlay.dot ? " is-dot" : ""}${overlay.dashed ? " is-dashed" : ""}`;
+  swatch.style.background = overlay.color;
+  swatch.style.borderColor = overlay.stroke;
+
+  const text = document.createElement("span");
+  text.className = "layer-label";
+  text.textContent = overlay.label;
+
+  label.append(swatch, text);
+  li.append(input, label);
+  layerListEl.append(li);
+});
+
+// Fond de carte : deux boutons exclusifs plutôt que les radios de Leaflet.
+const basemapEl = document.getElementById("basemap");
+const BASEMAPS = { street: streetLayer, satellite: satelliteLayer };
+
+basemapEl.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-base]");
+  if (!btn) return;
+  Object.entries(BASEMAPS).forEach(([key, layer]) => {
+    if (key === btn.dataset.base) map.addLayer(layer);
+    else map.removeLayer(layer);
+  });
+  basemapEl.querySelectorAll("[data-base]").forEach((el) => {
+    el.classList.toggle("is-on", el === btn);
+  });
+});
+
+// ---- Statistiques de la vue courante ----
+
+const statCountEl = document.getElementById("stat-count");
+const statAreaEl = document.getElementById("stat-area");
+const statSolarEl = document.getElementById("stat-solar");
+
+function formatArea(m2) {
+  // Au-delà de l'hectare, les m² deviennent illisibles dans une case étroite.
+  if (m2 >= 10000) return `${(m2 / 10000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} ha`;
+  return `${Math.round(m2).toLocaleString("fr-FR")} m²`;
+}
+
+function formatPower(kwc) {
+  if (kwc >= 1000) return `${(kwc / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} MWc`;
+  return `${Math.round(kwc).toLocaleString("fr-FR")} kWc`;
+}
+
+// Ne compte que ce que l'utilisateur voit réellement : couche activée et
+// polygone dont le centre est dans le cadre. Les couches IA et manuelles
+// gardent en mémoire tout ce qui a été chargé depuis le début de la session,
+// donc sans ce filtre les totaux ne correspondraient pas à l'écran.
+function refreshViewStats() {
+  const bounds = map.getBounds();
+  let count = 0;
+  let area = 0;
+
+  OVERLAYS.filter((o) => o.area && map.hasLayer(o.layer)).forEach((overlay) => {
+    overlay.layer.eachLayer((layer) => {
+      const center = layer.getBounds && layer.getBounds().getCenter();
+      if (!center || !bounds.contains(center)) return;
+      count += 1;
+      const m2 = layer.feature && layer.feature.properties && layer.feature.properties.area_m2;
+      if (m2 > 0) area += m2;
+    });
+  });
+
+  statCountEl.textContent = count ? count.toLocaleString("fr-FR") : "—";
+  statAreaEl.textContent = area ? formatArea(area) : "—";
+  const solar = estimateSolarPanels(area);
+  statSolarEl.textContent = solar ? formatPower(solar.capacityKWc) : "—";
+}
 
 
 const loadedMsBuildingIds = new Set();
@@ -197,6 +295,7 @@ async function loadMsBuildings() {
     if (data.features.length) {
       msBuildingsLayer.addData(data);
     }
+    refreshViewStats();
   } catch (err) {
     // rechargement silencieux, non bloquant
   }
@@ -409,6 +508,7 @@ function addIaFeatures(featureCollection, { refreshCompanies = true } = {}) {
     // Un nouveau toit peut qualifier une entreprise située dessous.
     refreshCompanyRoofStatus();
   }
+  refreshViewStats();
 }
 
 async function deleteIaSegment(id, layer) {
@@ -567,6 +667,7 @@ async function loadBuildings() {
 
     buildingsLayer.clearLayers();
     buildingsLayer.addData(data);
+    refreshViewStats();
     setStatus(
       data.features.length
         ? `${data.features.length} bâtiment(s) chargé(s)`
@@ -644,6 +745,9 @@ searchFormEl.addEventListener("submit", async (e) => {
 });
 
 map.on("moveend zoomend", scheduleLoadBuildings);
+// Les totaux suivent le cadre, pas seulement les chargements : un simple
+// déplacement sur des bâtiments déjà en mémoire doit les mettre à jour.
+map.on("moveend zoomend", refreshViewStats);
 
 let segmentationInFlight = false;
 
@@ -962,6 +1066,23 @@ function applyUrlLocation() {
   }
 }
 
+// Panneau repliable : nécessaire sur écran étroit, où il couvrirait la carte,
+// et pratique sur grand écran pour dégager la vue le temps d'un tracé. Fermé
+// d'office en dessous de 900 px, la carte primant sur les contrôles.
+const railToggleEl = document.getElementById("rail-toggle");
+
+function setRailOpen(open) {
+  document.body.classList.toggle("rail-closed", !open);
+  railToggleEl.setAttribute("aria-expanded", String(open));
+}
+
+railToggleEl.addEventListener("click", () => {
+  setRailOpen(document.body.classList.contains("rail-closed"));
+});
+
+setRailOpen(window.matchMedia("(min-width: 900px)").matches);
+
 loadCitiesInfo();
 loadCompanies();
 applyUrlLocation();
+refreshViewStats();

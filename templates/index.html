@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Carte du Maroc — Surface des bâtiments</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -13,25 +16,81 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
 </head>
 <body>
-  <header class="topbar">
-    <a class="topbar-brand" href="/">
-      <img class="topbar-logo" src="{{ url_for('static', filename='img/logo-netis.png') }}" alt="Netis" />
-      <h1>Carte du Maroc — Surface des bâtiments</h1>
+  {# Le panneau de gauche remplace l'ancienne barre flottante ET le sélecteur
+     de couches de Leaflet (retiré dans static/app.js, qui remplit #layer-list
+     à partir des couches elles-mêmes pour que libellés et couleurs de légende
+     restent définis au même endroit que les styles). #}
+  <button id="rail-toggle" class="rail-toggle" type="button" aria-controls="rail" aria-expanded="true">
+    <span aria-hidden="true">☰</span><span class="sr-only">Afficher ou masquer le panneau</span>
+  </button>
+
+  <aside class="rail" id="rail">
+    <a class="rail-brand" href="/">
+      <span class="rail-logo-tile">
+        <img class="rail-logo" src="{{ url_for('static', filename='img/logo-netis.png') }}" alt="Netis" />
+      </span>
+      <span class="rail-titles">
+        <h1>Surface des bâtiments</h1>
+        <span class="rail-sub">Maroc — mesure &amp; potentiel solaire</span>
+      </span>
     </a>
-    <select id="city-select" class="city-select"></select>
-    <form id="search-form" class="search-form">
-      <input
-        id="search-input"
-        class="search-input"
-        type="text"
-        placeholder="Coordonnées (lat, lon) ou lieu (ville, quartier...)"
-        autocomplete="off"
-      />
-      <button id="search-btn" class="search-btn" type="submit">🔍</button>
-    </form>
-    <button id="points-select-btn" class="zone-btn" type="button">✏️ Tracer un toit</button>
+
+    <div class="rail-scroll">
+      <section class="rail-section">
+        <h2 class="rail-legend">Localisation</h2>
+        <select id="city-select" class="city-select" aria-label="Ville"></select>
+        <form id="search-form" class="search-form">
+          <input
+            id="search-input"
+            class="search-input"
+            type="text"
+            placeholder="Coordonnées (lat, lon) ou lieu…"
+            autocomplete="off"
+            aria-label="Rechercher un lieu ou des coordonnées"
+          />
+          <button id="search-btn" class="search-btn" type="submit" aria-label="Rechercher">🔍</button>
+        </form>
+      </section>
+
+      <section class="rail-section">
+        <h2 class="rail-legend">Fond de carte</h2>
+        <div class="basemap" id="basemap" role="group" aria-label="Fond de carte">
+          <button type="button" class="basemap-opt is-on" data-base="street">Plan</button>
+          <button type="button" class="basemap-opt" data-base="satellite">Satellite</button>
+        </div>
+      </section>
+
+      <section class="rail-section">
+        <h2 class="rail-legend">Couches</h2>
+        <ul class="layer-list" id="layer-list"></ul>
+      </section>
+
+      <section class="rail-section">
+        <h2 class="rail-legend">Dans cette vue</h2>
+        <div class="stats">
+          <div class="stat">
+            <span class="stat-value" id="stat-count">—</span>
+            <span class="stat-key">bâtiments affichés</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="stat-area">—</span>
+            <span class="stat-key">surface de toit cumulée</span>
+          </div>
+          <div class="stat stat-solar">
+            <span class="stat-value" id="stat-solar">—</span>
+            <span class="stat-key">potentiel photovoltaïque</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="rail-section">
+        <h2 class="rail-legend">Outils</h2>
+        <button id="points-select-btn" class="zone-btn" type="button">✏️ Tracer un toit</button>
+      </section>
+    </div>
+
     <p class="hint" id="hint">Survolez un bâtiment (OSM) pour voir sa surface, ou cliquez n'importe où pour une détection IA par imagerie satellite.</p>
-  </header>
+  </aside>
 
   <div id="map"></div>
 

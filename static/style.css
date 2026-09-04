@@ -1,138 +1,46 @@
+/* Carte — même identité visuelle que la page d'accueil (static/landing.css) :
+   palette prélevée sur le logo Netis, Bricolage Grotesque pour les titres,
+   Instrument Sans pour le reste. Les panneaux flottants au-dessus de la carte
+   sont traités en verre dépoli plutôt qu'en blocs blancs opaques, pour laisser
+   voir la carte dessous. */
+
+:root {
+  --bleu:      #077ea3;
+  --turquoise: #2b9d86;
+  --vert:      #3db258;
+  --lime:      #a4c93c;
+
+  --degrade: linear-gradient(100deg, var(--bleu) 0%, var(--turquoise) 42%, var(--vert) 72%, var(--lime) 100%);
+
+  --ink:      #0f1b20;
+  --ink-doux: #47585f;
+  --ink-pale: #7d9098;
+
+  --surface: #ffffff;
+  --verre:   rgba(255, 255, 255, 0.9);
+  --trait:   #dde7e8;
+  --trait-pale: #edf3f3;
+
+  --nuit:    rgba(9, 22, 28, 0.92);
+
+  --ombre:      0 10px 30px rgba(7, 19, 25, 0.16);
+  --ombre-forte: 0 18px 44px rgba(7, 19, 25, 0.24);
+
+  --rayon:    14px;
+  --rayon-sm: 10px;
+
+  --rail-l: 300px; /* largeur du panneau de gauche, reprise par les décalages Leaflet */
+}
+
+* { box-sizing: border-box; }
+
 html, body {
   margin: 0;
   padding: 0;
   height: 100%;
-  font-family: "Segoe UI", Roboto, Arial, sans-serif;
-}
-
-.topbar {
-  position: absolute;
-  z-index: 1000;
-  top: 12px;
-  left: 12px;
-  background: rgba(255, 255, 255, 0.95);
-  padding: 10px 20px;
-  border-radius: 10px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-  text-align: left;
-  max-width: 90vw;
-}
-
-/* Logo + titre forment le lien de retour à l'accueil, même principe que sur
-   le tableau de bord et la page Comptes (static/dashboard.css) : plus besoin
-   d'un bouton « Accueil » séparé dans une barre déjà chargée de contrôles. */
-.topbar-brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  text-decoration: none;
-}
-
-.topbar-brand:hover { opacity: 0.85; }
-
-.topbar-logo {
-  height: 24px;
-  width: auto;
-  display: block;
-}
-
-.topbar h1 {
-  margin: 0;
-  font-size: 18px;
-  color: #1f5130;
-}
-
-.city-select {
-  margin-top: 8px;
-  padding: 5px 10px;
-  font-size: 14px;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-}
-
-.search-form {
-  display: inline-flex;
-  margin-top: 8px;
-  margin-left: 8px;
-  gap: 4px;
-}
-
-.search-input {
-  width: 260px;
-  max-width: 60vw;
-  padding: 5px 10px;
-  font-size: 14px;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-}
-
-.search-btn {
-  padding: 5px 10px;
-  font-size: 14px;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-  background: #fff;
-  cursor: pointer;
-}
-
-.search-btn:hover {
-  background: #f0f0f0;
-}
-
-.zone-btn {
-  margin-top: 8px;
-  margin-left: 8px;
-  padding: 5px 10px;
-  font-size: 14px;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-  background: #fff;
-  cursor: pointer;
-}
-
-.zone-btn.active {
-  background: #2979ff;
-  border-color: #2979ff;
-  color: #fff;
-}
-
-.points-controls {
-  position: absolute;
-  z-index: 1000;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  gap: 8px;
-}
-
-.points-controls.hidden {
-  display: none;
-}
-
-.points-controls button {
-  padding: 8px 16px;
-  font-size: 14px;
-  border-radius: 20px;
-  border: none;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-#points-confirm-btn {
-  background: #2e7d32;
-  color: #fff;
-}
-
-#points-cancel-btn {
-  background: #d32f2f;
-  color: #fff;
-}
-
-.topbar .hint {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: #555;
+  font-family: "Instrument Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
 }
 
 #map {
@@ -141,57 +49,563 @@ html, body {
   bottom: 0;
   left: 0;
   right: 0;
+  background: #eaf1f2; /* fond neutre le temps que les tuiles arrivent */
 }
+
+/* ---------- panneau de gauche ---------- */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.rail {
+  position: absolute;
+  z-index: 1200;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: var(--rail-l);
+  max-width: 88vw;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border-right: 1px solid var(--trait);
+  box-shadow: 6px 0 30px rgba(7, 19, 25, 0.1);
+  transition: transform 0.24s ease;
+}
+
+body.rail-closed .rail {
+  transform: translateX(-100%);
+}
+
+/* Poignée d'ouverture : posée à droite du panneau, elle le suit quand il se
+   replie pour rester atteignable une fois celui-ci hors de l'écran. */
+.rail-toggle {
+  position: absolute;
+  z-index: 1300;
+  top: 14px;
+  left: calc(var(--rail-l) + 12px);
+  width: 38px;
+  height: 38px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--ink);
+  cursor: pointer;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: var(--rayon-sm);
+  background: var(--verre);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--ombre);
+  transition: left 0.24s ease, background 0.15s ease;
+}
+
+.rail-toggle:hover { background: #fff; }
+
+body.rail-closed .rail-toggle { left: 14px; }
+
+/* Logo + titre forment le lien de retour à l'accueil, même principe que sur
+   le tableau de bord et la page Comptes (static/dashboard.css) : plus besoin
+   d'un bouton « Accueil » séparé dans un panneau déjà chargé de contrôles. */
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--trait-pale);
+  text-decoration: none;
+  color: inherit;
+}
+
+.rail-brand:hover .rail-logo-tile { box-shadow: 0 4px 14px rgba(7, 19, 25, 0.18); }
+.rail-brand:hover h1 { opacity: 0.75; }
+
+/* Le logo Netis a un fond blanc opaque (pas de vraie transparence) : sur un
+   fond translucide il lui faut sa propre pastille claire, sinon son fond
+   ressort en rectangle mal découpé. */
+.rail-logo-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  padding: 5px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(7, 19, 25, 0.1);
+  transition: box-shadow 0.15s ease;
+}
+
+.rail-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.rail-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.rail h1 {
+  margin: 0;
+  font-family: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  transition: opacity 0.15s ease;
+}
+
+.rail-sub {
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  color: var(--ink-pale);
+}
+
+/* Seules les sections défilent : la marque reste en haut et l'aide en bas,
+   toutes deux visibles quelle que soit la hauteur de l'écran. */
+.rail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 20px 12px;
+}
+
+.rail-section {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--trait-pale);
+}
+
+.rail-section:last-child { border-bottom: none; }
+
+.rail-legend {
+  margin: 0 0 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-pale);
+}
+
+/* ---------- fond de carte ---------- */
+
+.basemap {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  border-radius: var(--rayon-sm);
+  background: var(--trait-pale);
+}
+
+.basemap-opt {
+  flex: 1;
+  height: 30px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-doux);
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.basemap-opt:hover { color: var(--ink); }
+
+.basemap-opt.is-on {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(7, 19, 25, 0.12);
+}
+
+/* ---------- couches ---------- */
+
+.layer-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.layer-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.layer-item input {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--turquoise);
+  cursor: pointer;
+}
+
+.layer-item label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 5px 0;
+  cursor: pointer;
+}
+
+/* Pastille de légende : la couleur vient de static/app.js, qui la lit sur le
+   style de la couche — la légende ne peut donc pas mentir sur la carte. */
+.layer-swatch {
+  flex: none;
+  width: 15px;
+  height: 12px;
+  border: 1.5px solid;
+  border-radius: 3px;
+}
+
+.layer-swatch.is-dashed { border-style: dashed; }
+
+.layer-swatch.is-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.layer-label {
+  font-size: 13px;
+  color: var(--ink-doux);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layer-item input:checked + label .layer-label {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* ---------- statistiques de la vue ---------- */
+
+.stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 9px 12px;
+  border-radius: var(--rayon-sm);
+  background: var(--trait-pale);
+}
+
+.stat-value {
+  font-family: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  color: var(--ink);
+}
+
+.stat-key {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-pale);
+}
+
+/* Le potentiel photovoltaïque est le chiffre qui motive la prospection : il
+   porte le dégradé de la marque, les deux autres restent neutres. */
+.stat-solar {
+  background: linear-gradient(100deg, rgba(7, 126, 163, 0.1), rgba(164, 201, 60, 0.16));
+}
+
+.stat-solar .stat-value {
+  background: var(--degrade);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ---------- champs et boutons ---------- */
+
+.city-select,
+.search-input,
+.search-btn,
+.zone-btn {
+  height: 40px;
+  font-family: inherit;
+  font-size: 13.5px;
+  border-radius: var(--rayon-sm);
+  border: 1px solid var(--trait);
+  background: #fff;
+  color: var(--ink);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.city-select {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 0 30px 0 11px;
+  cursor: pointer;
+  /* chevron dessiné en CSS : évite la flèche système, différente d'un OS à l'autre */
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--ink-doux) 50%),
+                    linear-gradient(135deg, var(--ink-doux) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 17px, calc(100% - 10px) 17px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.search-form {
+  display: flex;
+  gap: 6px;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.search-input::placeholder { color: var(--ink-pale); }
+
+.city-select:hover,
+.search-input:hover,
+.zone-btn:hover { border-color: #c3d4d6; }
+
+.city-select:focus-visible,
+.search-input:focus,
+.search-btn:focus-visible,
+.zone-btn:focus-visible {
+  outline: none;
+  border-color: var(--turquoise);
+  box-shadow: 0 0 0 3px rgba(43, 157, 134, 0.18);
+}
+
+.search-btn {
+  flex: none;
+  width: 42px;
+  padding: 0;
+  cursor: pointer;
+  border-color: transparent;
+  background: var(--degrade);
+  box-shadow: 0 2px 8px rgba(7, 126, 163, 0.28);
+}
+
+.search-btn:hover { filter: brightness(1.06); }
+.search-btn:active { transform: translateY(1px); }
+
+.zone-btn {
+  width: 100%;
+  padding: 0 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* État actif du mode « tracer un toit » : plein dégradé, pour qu'on voie d'un
+   coup d'œil que les clics sur la carte ne font plus la même chose. */
+.zone-btn.active {
+  border-color: transparent;
+  background: var(--degrade);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(7, 126, 163, 0.3);
+}
+
+/* Aide contextuelle, réécrite en continu par static/app.js selon le zoom et le
+   mode actif : ancrée en bas du panneau, hors de la zone qui défile. */
+.rail .hint {
+  flex: none;
+  margin: 0;
+  padding: 13px 20px;
+  border-top: 1px solid var(--trait-pale);
+  background: rgba(237, 243, 243, 0.6);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-doux);
+}
+
+/* ---------- barres d'action en bas (tracé manuel, segmentation) ---------- */
+
+/* Centrées sur la carte visible, pas sur la fenêtre : sans le décalage de la
+   largeur du panneau, elles paraîtraient poussées vers la droite. */
+.points-controls {
+  position: absolute;
+  z-index: 1000;
+  bottom: 22px;
+  left: calc(50% + var(--rail-l) / 2);
+  transform: translateX(-50%);
+  transition: left 0.24s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 28px);
+  padding: 8px;
+  background: var(--verre);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 999px;
+  box-shadow: var(--ombre-forte);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.points-controls.hidden {
+  display: none;
+}
+
+.points-controls button {
+  padding: 8px 16px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--trait);
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+  transition: filter 0.15s ease, background 0.15s ease, transform 0.1s ease;
+}
+
+.points-controls button:hover { background: var(--trait-pale); }
+.points-controls button:active { transform: translateY(1px); }
+
+#points-confirm-btn,
+#seg-controls button#seg-confirm-btn {
+  border-color: transparent;
+  background: linear-gradient(100deg, var(--turquoise), var(--vert));
+  color: #fff;
+}
+
+#points-confirm-btn:hover,
+#seg-controls button#seg-confirm-btn:hover {
+  background: linear-gradient(100deg, var(--turquoise), var(--vert));
+  filter: brightness(1.06);
+}
+
+#points-cancel-btn,
+#seg-cancel-btn {
+  border-color: transparent;
+  background: #fdecec;
+  color: #b3261e;
+}
+
+#points-cancel-btn:hover,
+#seg-cancel-btn:hover { background: #fbdcdc; }
+
+/* Surface courante pendant la segmentation interactive : c'est la valeur que
+   l'utilisateur surveille, elle est donc traitée comme une pastille sombre
+   qui tranche sur les boutons clairs. */
+.seg-area {
+  display: flex;
+  align-items: center;
+  padding: 8px 15px;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border-radius: 999px;
+  background: var(--nuit);
+  color: #fff;
+  white-space: nowrap;
+}
+
+/* ---------- infobulle de survol ---------- */
 
 .tooltip {
   position: absolute;
   z-index: 1500;
   pointer-events: none;
-  background: rgba(20, 20, 20, 0.92);
+  background: var(--nuit);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: #fff;
-  padding: 8px 12px;
-  border-radius: 8px;
-  font-size: 13px;
-  line-height: 1.4;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  max-width: 220px;
+  padding: 10px 13px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 12.5px;
+  line-height: 1.5;
+  box-shadow: var(--ombre-forte);
+  max-width: 240px;
 }
 
-.tooltip .surface {
-  font-size: 16px;
+.tooltip strong {
+  font-family: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+  font-size: 13.5px;
   font-weight: 700;
-  color: #7CFC90;
+}
+
+.tooltip div + div { color: rgba(255, 255, 255, 0.72); }
+
+.tooltip .surface {
+  margin-top: 3px;
+  font-family: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+  font-size: 19px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--lime);
 }
 
 .tooltip .solar {
-  margin-top: 2px;
+  margin-top: 3px;
   font-size: 12px;
   font-weight: 600;
   color: #ffd54f;
 }
 
 .tooltip .no-roof {
-  margin-top: 2px;
+  margin-top: 3px;
   font-size: 12px;
   font-weight: 600;
-  color: #ff8a80;
+  color: #ff9d94;
 }
 
 .tooltip.hidden {
   display: none;
 }
 
+/* ---------- bandeau d'état ---------- */
+
 .status {
   position: absolute;
   z-index: 1000;
-  bottom: 16px;
-  left: 50%;
+  bottom: 22px;
+  left: calc(50% + var(--rail-l) / 2);
   transform: translateX(-50%);
-  background: rgba(20, 20, 20, 0.85);
+  transition: left 0.24s ease;
+  max-width: calc(100vw - 28px);
+  background: var(--nuit);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   color: #fff;
-  padding: 8px 16px;
-  border-radius: 20px;
+  padding: 9px 18px;
+  border-radius: 999px;
   font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--ombre-forte);
 }
 
 .status.hidden {
@@ -199,8 +613,10 @@ html, body {
 }
 
 .status.error {
-  background: rgba(160, 30, 30, 0.9);
+  background: rgba(150, 28, 22, 0.94);
 }
+
+/* ---------- panneau entreprise ---------- */
 
 .company-panel {
   position: absolute;
@@ -208,14 +624,26 @@ html, body {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 380px;
-  max-width: 90vw;
-  background: #fff;
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.25);
-  padding: 28px 26px;
+  width: 390px;
+  max-width: 92vw;
+  background: var(--surface);
+  box-shadow: -8px 0 40px rgba(7, 19, 25, 0.22);
+  padding: 30px 28px;
   overflow-y: auto;
   box-sizing: border-box;
-  animation: company-panel-slide-in 0.2s ease-out;
+  animation: company-panel-slide-in 0.22s ease-out;
+}
+
+/* Liseré dégradé sur le bord gauche : rattache le panneau à l'identité Netis
+   sans ajouter d'élément dans le HTML généré par static/app.js. */
+.company-panel::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--degrade);
 }
 
 @keyframes company-panel-slide-in {
@@ -241,33 +669,37 @@ html, body {
   height: 32px;
   border-radius: 50%;
   border: none;
-  background: #f0f0f0;
-  font-size: 16px;
+  background: var(--trait-pale);
+  font-size: 15px;
   cursor: pointer;
-  color: #555;
+  color: var(--ink-doux);
   line-height: 1;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .company-panel-close:hover {
-  background: #e0e0e0;
-  color: #000;
+  background: var(--trait);
+  color: var(--ink);
 }
 
 #company-panel-content h2 {
-  margin: 0 40px 4px 0;
-  font-size: 24px;
+  margin: 0 44px 6px 0;
+  font-family: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
   line-height: 1.25;
-  color: #1f5130;
+  color: var(--ink);
 }
 
 #company-panel-content .field-category {
   display: inline-block;
-  margin: 4px 0 20px;
+  margin: 4px 0 18px;
   padding: 4px 12px;
-  border-radius: 20px;
-  background: #e8f5e9;
-  color: #2e7d32;
-  font-size: 13px;
+  border-radius: 999px;
+  background: rgba(61, 178, 88, 0.12);
+  color: #2c7a41;
+  font-size: 12.5px;
   font-weight: 600;
 }
 
@@ -275,10 +707,10 @@ html, body {
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  padding: 14px 0;
-  border-bottom: 1px solid #eee;
-  font-size: 16px;
-  line-height: 1.4;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--trait-pale);
+  font-size: 15px;
+  line-height: 1.45;
 }
 
 #company-panel-content .field:last-child {
@@ -286,10 +718,11 @@ html, body {
 }
 
 #company-panel-content .field-icon {
-  font-size: 18px;
+  font-size: 16px;
   flex: none;
   width: 22px;
   text-align: center;
+  line-height: 1.4;
 }
 
 #company-panel-content .field-body {
@@ -298,15 +731,17 @@ html, body {
 
 #company-panel-content .field-label {
   display: block;
-  font-size: 11px;
+  font-size: 10.5px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #999;
-  margin-bottom: 3px;
+  letter-spacing: 0.06em;
+  color: var(--ink-pale);
+  margin-bottom: 2px;
 }
 
 #company-panel-content a {
-  color: #2979ff;
+  color: var(--bleu);
+  font-weight: 500;
   word-break: break-word;
   text-decoration: none;
 }
@@ -315,29 +750,105 @@ html, body {
   text-decoration: underline;
 }
 
-/* Bandeau de la segmentation interactive : surface courante + actions.
-   Réutilise la mise en page de .points-controls (tracé manuel). */
-.seg-area {
-  display: flex;
-  align-items: center;
-  padding: 8px 14px;
-  font-size: 14px;
-  font-weight: 600;
-  border-radius: 20px;
-  background: rgba(20, 20, 20, 0.82);
-  color: #fff;
-  white-space: nowrap;
+/* ---------- contrôles Leaflet accordés au reste ---------- */
+
+/* Le zoom est ancré en bas à gauche (voir static/app.js) : il faut l'écarter
+   de la largeur du panneau, sinon il passe dessous. */
+.leaflet-bottom.leaflet-left {
+  margin-left: var(--rail-l);
+  transition: margin-left 0.24s ease;
 }
 
-#seg-controls button {
+body.rail-closed .leaflet-bottom.leaflet-left { margin-left: 0; }
+
+body.rail-closed .points-controls,
+body.rail-closed .status { left: 50%; }
+
+.leaflet-touch .leaflet-bar,
+.leaflet-bar {
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: var(--rayon-sm);
+  box-shadow: var(--ombre);
+  overflow: hidden;
+}
+
+.leaflet-bar a,
+.leaflet-touch .leaflet-bar a {
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+  color: var(--ink);
+  background: var(--verre);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border-bottom-color: var(--trait-pale);
+  font-size: 17px;
+}
+
+.leaflet-bar a:hover,
+.leaflet-touch .leaflet-bar a:hover {
   background: #fff;
-  color: #1a1a1a;
+  color: var(--bleu);
 }
 
-/* Sélecteur volontairement aussi spécifique que la règle ci-dessus
-   (#id + élément), sinon le fond blanc générique l'emporterait et le
-   bouton se retrouverait en blanc sur blanc. */
-#seg-controls button#seg-confirm-btn {
-  background: #2e7d32;
-  color: #fff;
+.leaflet-touch .leaflet-control-layers,
+.leaflet-control-layers {
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: var(--rayon-sm);
+  box-shadow: var(--ombre);
+  background: var(--verre);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+}
+
+.leaflet-control-layers-expanded {
+  padding: 10px 14px 10px 12px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.leaflet-control-layers-list label { margin-bottom: 3px; }
+
+.leaflet-control-layers-separator {
+  border-top-color: var(--trait);
+}
+
+.leaflet-control-attribution {
+  background: rgba(255, 255, 255, 0.82) !important;
+  border-radius: 8px 0 0 0;
+  padding: 3px 8px;
+  font-size: 10.5px;
+  color: var(--ink-pale);
+}
+
+.leaflet-control-attribution a { color: var(--bleu); }
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  border-radius: 12px;
+  box-shadow: var(--ombre-forte);
+}
+
+/* ---------- écrans étroits ---------- */
+
+/* ---------- écrans étroits ---------- */
+
+/* En dessous de 900 px le panneau est fermé au chargement (static/app.js) et
+   se comporte en tiroir : il recouvre la carte au lieu de la pousser, donc
+   plus aucun décalage sur les contrôles du bas. */
+@media (max-width: 899px) {
+  .leaflet-bottom.leaflet-left { margin-left: 0; }
+
+  .points-controls,
+  .status { left: 50%; }
+}
+
+@media (max-width: 560px) {
+  :root { --rail-l: 270px; }
+
+  .rail-brand { padding: 15px 16px; }
+  .rail-scroll { padding: 4px 16px 12px; }
+  .rail .hint { padding: 11px 16px; font-size: 12px; }
+
+  .company-panel { padding: 26px 20px; }
 }
