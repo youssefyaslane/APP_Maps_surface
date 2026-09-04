@@ -29,14 +29,17 @@
     </form>
     <button id="points-select-btn" class="zone-btn" type="button">✏️ Tracer un toit</button>
     <a href="/dashboard" class="zone-btn dashboard-link">☀️ Prospects solaires</a>
-    {% if current_user and current_user.is_admin %}
-      <a href="/admin/users" class="zone-btn">👤 Comptes</a>
-    {% endif %}
+    {# Le lien vers l'administration des comptes reste sur la page d'accueil
+       uniquement (voir templates/landing.html) : la carte est déjà l'écran le
+       plus chargé en boutons, pas la peine d'y ajouter une action rare. #}
     {% if current_user %}
-      <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+      <div class="user-chip">
+        <span class="user-avatar">{{ current_user.display_name[0] | upper }}</span>
         <span class="current-user">{{ current_user.display_name }}</span>
-        <button type="submit" class="zone-btn logout-btn">Déconnexion</button>
-      </form>
+        <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+          <button type="submit" class="logout-link">Déconnexion</button>
+        </form>
+      </div>
     {% endif %}
     <p class="hint" id="hint">Survolez un bâtiment (OSM) pour voir sa surface, ou cliquez n'importe où pour une détection IA par imagerie satellite.</p>
   </header>

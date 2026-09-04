@@ -8,8 +8,11 @@
 </head>
 <body>
   <main class="login-card">
-    <h1>☀️ Prospection solaire</h1>
-    <p class="login-sub">Outil interne Netis — connexion requise</p>
+    <div class="login-head">
+      <img class="login-logo" src="{{ url_for('static', filename='img/logo-netis.png') }}" alt="Netis" />
+      <h1>Prospection solaire</h1>
+      <p class="login-sub">Outil interne Netis — connexion requise</p>
+    </div>
 
     {% if error %}
       <p class="login-error" role="alert">{{ error }}</p>

@@ -9,17 +9,25 @@
 </head>
 <body>
   <header class="dash-header">
-    <div>
-      <h1>👤 Comptes</h1>
-      <p class="subtitle">Créer un accès pour un commercial ou un autre administrateur</p>
+    <div class="dash-brand">
+      <span class="dash-logo">
+        <img src="{{ url_for('static', filename='img/logo-netis.png') }}" alt="Netis" />
+      </span>
+      <div>
+        <h1>Comptes</h1>
+        <p class="subtitle">Créer un accès pour un commercial ou un autre administrateur</p>
+      </div>
     </div>
     <div class="header-links">
       <a class="btn-map" href="/">🏠 Accueil</a>
       {% if current_user %}
-        <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+        <div class="user-chip">
+          <span class="user-avatar">{{ current_user.display_name[0] | upper }}</span>
           <span class="current-user">{{ current_user.display_name }}</span>
-          <button type="submit" class="btn-map logout-btn">Déconnexion</button>
-        </form>
+          <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+            <button type="submit" class="logout-btn">Déconnexion</button>
+          </form>
+        </div>
       {% endif %}
     </div>
   </header>

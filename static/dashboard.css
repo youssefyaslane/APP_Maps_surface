@@ -17,6 +17,34 @@ html, body {
   color: #fff;
 }
 
+.dash-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* Le logo Netis a un fond blanc opaque (pas de vraie transparence) : sur le
+   vert plein de l'en-tête, il lui faut sa propre pastille claire plutôt que
+   d'être posé directement dessus, sans quoi son fond ferait un rectangle
+   blanc mal découpé. */
+.dash-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  background: #fff;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.dash-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .dash-header h1 {
   margin: 0;
   font-size: 22px;
@@ -30,20 +58,56 @@ html, body {
 
 .header-links { display: flex; align-items: center; gap: 10px; }
 
-.logout-form {
-  display: inline-flex;
+/* Bloc identité, distinct des boutons de navigation qui le précèdent : une
+   pastille semi-transparente qui reprend le même principe que sur la page
+   d'accueil (static/landing.css), adaptée au fond sombre du tableau de bord. */
+.user-chip {
+  display: flex;
   align-items: center;
   gap: 8px;
+  margin-left: 4px;
+  padding: 4px 6px 4px 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
 }
 
-.logout-form .current-user {
-  font-size: 13px;
-  opacity: 0.85;
+.user-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  color: #1f5130;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
 }
+
+.user-chip .current-user {
+  font-size: 13px;
+  opacity: 0.9;
+  white-space: nowrap;
+}
+
+.logout-form { margin: 0; }
 
 .logout-btn {
   cursor: pointer;
   font: inherit;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.logout-btn:hover {
+  background: #fff;
+  color: #1f5130;
 }
 
 .btn-map {

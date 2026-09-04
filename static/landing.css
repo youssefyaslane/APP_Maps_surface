@@ -97,22 +97,57 @@ h1, h2, h3, .fig b, .step-n, .brand-mark {
   padding: 9px 18px !important;
   margin-left: 6px;
 }
-.logout-form { display: inline-flex; align-items: center; gap: 8px; margin-left: 6px; }
 
-.logout-form .current-user { font-size: 13.5px; color: var(--ink-pale); }
+/* Bloc identité : séparé des liens de navigation par sa propre pastille, pour
+   qu'on distingue au premier coup d'œil « aller quelque part » de « qui je
+   suis, me déconnecter ». */
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 10px;
+  padding: 4px 6px 4px 4px;
+  border-radius: 999px;
+  background: var(--trait-pale);
+  border: 1px solid var(--trait);
+}
+
+.user-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--degrade);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.user-chip .current-user {
+  font-size: 13.5px;
+  color: var(--ink-doux);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.logout-form { margin: 0; }
 
 .logout-link {
-  border: none;
-  background: none;
-  padding: 8px 14px;
-  border-radius: 7px;
-  font-size: 14.5px;
+  border: 1px solid var(--trait);
+  background: #fff;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 12.5px;
   font-weight: 500;
   font-family: inherit;
   color: var(--ink-doux);
   cursor: pointer;
+  white-space: nowrap;
 }
-.logout-link:hover, .logout-link:focus-visible { background: var(--trait-pale); color: var(--ink); }
+.logout-link:hover, .logout-link:focus-visible { background: var(--ink); color: #fff; border-color: var(--ink); }
 
 .nav-links a.nav-cta:hover, .nav-links a.nav-cta:focus-visible {
   background: var(--degrade);

@@ -103,21 +103,60 @@ html, body {
   color: #fff;
 }
 
-.logout-form {
+/* Bloc identité, même principe que sur la page d'accueil et le tableau de
+   bord (static/landing.css, static/dashboard.css) : une pastille distincte
+   des boutons de navigation qui la précèdent. */
+.user-chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   margin-top: 8px;
   margin-left: 8px;
+  padding: 3px 6px 3px 4px;
+  border-radius: 999px;
+  background: #f0f2f4;
+  border: 1px solid #ccc;
+  vertical-align: middle;
 }
 
-.current-user {
-  font-size: 13px;
-  color: #607d8b;
+.user-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #263238;
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  flex-shrink: 0;
 }
 
-.logout-btn {
-  margin: 0;
+.user-chip .current-user {
+  font-size: 12.5px;
+  color: #455a64;
+  white-space: nowrap;
+}
+
+.logout-form { margin: 0; }
+
+.logout-link {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+  border: 1px solid #ccc;
+  background: #fff;
+  color: #455a64;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.logout-link:hover {
+  background: #263238;
+  color: #fff;
+  border-color: #263238;
 }
 
 .points-controls {
