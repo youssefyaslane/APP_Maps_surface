@@ -45,6 +45,20 @@ docker compose exec web python -m scripts.import_ms_buildings /tmp/fichier.geojs
 docker compose exec db psql -U maps -d maps
 ```
 
+**Lancer les tests**
+```bash
+docker compose exec web python -m pytest tests/ -q
+```
+
+Les tests portent sur les fonctions pures (géométrie, potentiel solaire, clauses
+de filtrage) et ne demandent ni base ni réseau. L'image embarquant une copie du
+code, il faut la reconstruire (`docker compose up -d --build web`) pour tester
+des modifications, ou monter les sources le temps d'un lancement :
+
+```bash
+docker compose run --rm --no-deps -v "$PWD":/app -e CACHE_DIR=/tmp/test-cache web python -m pytest tests/ -q
+```
+
 Accès : carte sur [http://127.0.0.1:5000](http://127.0.0.1:5000), tableau de bord sur [http://127.0.0.1:5000/dashboard](http://127.0.0.1:5000/dashboard).
 
 ## Fonctionnalités
@@ -65,7 +79,7 @@ Accès : carte sur [http://127.0.0.1:5000](http://127.0.0.1:5000), tableau de bo
 - **Liaison entreprise ↔ toit** : à l'ouverture du panneau détaillé d'une entreprise, recherche automatique du toit sous ses coordonnées et affichage de sa surface et de son potentiel solaire directement dans le panneau. Les autres couches sont temporairement masquées pour isoler visuellement le toit concerné (surbrillance jaune), puis restaurées à la fermeture du panneau
 - **Tableau de bord commercial** (`/dashboard`) : liste des prospects classés par puissance installable décroissante, statistiques globales, filtres (recherche par nom/adresse, ville, catégorie, puissance minimale), export CSV pour Excel, et lien direct vers chaque toit sur la carte
 - Cache par tuile (mémoire + disque) et récupération parallélisée pour des temps de réponse rapides
-- Préchargement automatique des grandes villes et du modèle IA au démarrage du serveur
+- Préchargement du modèle IA au démarrage, et des tuiles OpenStreetMap **uniquement pour les villes hors de l'emprise ingérée** : depuis l'import de l'extrait Geofabrik, la région de Casablanca est servie par la base et n'a plus rien à préchauffer sur Overpass
 
 ## Prérequis
 
@@ -118,6 +132,10 @@ python -m scripts.import_companies
 
 Sans argument, le script importe **tous** les `.xlsx` trouvés dans `Data_clients/` (ou passez un ou plusieurs chemins explicites : `python -m scripts.import_companies fichier1.xlsx fichier2.xlsx`). L'import est idempotent : relancer le script met à jour les entreprises déjà importées (dédoublonnage par `placeId`, y compris entre plusieurs fichiers) plutôt que de créer des doublons.
 
+Pour une ligne **sans `placeId`**, le dédoublonnage se rabat sur le nom exact à moins de 50 m d'une entreprise déjà connue. Sans ce repli, `ON CONFLICT (place_id)` ne se déclenchait jamais — deux `NULL` ne sont pas égaux pour un index unique — et chaque relance recréait la même entreprise indéfiniment.
+
+En fin d'import, le script signale les **doublons probables** : même nom à moins de 50 m mais `placeId` différents, c'est-à-dire deux passages du scraper sur le même établissement. C'est un avertissement, pas une fusion : la base contient de vrais homonymes distants (des noms de quartier employés comme raison sociale), et les fusionner perdrait des prospects réels.
+
 Avec Docker, `Data_clients/` n'étant pas monté en volume (dossier exclu du dépôt), copiez d'abord le fichier dans le conteneur :
 
 ```bash
@@ -154,7 +172,8 @@ Accessible depuis la carte (bouton « ☀️ Prospects solaires ») ou directeme
 
 - Entreprises classées par **puissance installable décroissante** (kWc)
 - Statistiques globales : nombre de prospects, potentiel total, panneaux estimés, surface moyenne, et **cibles prioritaires** (≥ 100 kWc, seuil configurable via `BIG_PROSPECT_KWC` dans `app.py`) — cette dernière carte est cliquable pour filtrer directement
-- Filtres : recherche par nom/adresse, ville, catégorie, puissance minimale
+- Filtres : recherche libre par nom/adresse, puis **ville et catégorie en listes déroulantes** alimentées par `/api/prospect_filters` à partir du contenu réel de la base, triées par fréquence et suivies du nombre de prospects que le choix ramènera. Ces deux filtres sont comparés à l'identique (et non plus par `ILIKE '%…%'`) : choisir « Fabricant » ne remonte plus « Fabricant de meubles », et le nombre annoncé correspond au nombre de lignes obtenues. Enfin, un seuil de puissance minimale
+- Numérotation continue d'une page à l'autre : le premier prospect de la page 2 porte le rang 51, pas 1
 - **Pagination** (50 prospects par page, côté serveur via `limit`/`offset`) : le tableau reste léger même avec plus d'un millier de prospects. Un filtre ramène toujours à la page 1
 - **Export CSV** (séparateur `;`, BOM UTF-8 pour Excel) respectant les filtres actifs, mais **sans pagination** : l'export contient toujours l'ensemble des prospects filtrés
 - Lien « 🗺️ Voir » par prospect, qui recentre la carte sur son toit
@@ -210,6 +229,7 @@ docker compose exec db psql -U maps -d maps
 
 ```
 app.py                  Serveur Flask + logique Overpass/cache/calcul de surface + persistance PostgreSQL
+domain/solar.py         Hypothèses d'installation et estimation kWc — source unique, sans I/O
 segmentation.py         Segmentation IA des bâtiments (extraction imagerie satellite + MobileSAM)
 import_companies.py     Import en masse des entreprises depuis un/des export(s) .xlsx vers PostgreSQL
 import_ms_buildings.py  Import des empreintes de bâtiments Microsoft (.geojsonl) vers PostgreSQL
@@ -221,6 +241,7 @@ static/app.js           Logique frontend (couches, tooltip, recherche, clic/zone
 static/dashboard.js     Logique du tableau de bord (stats, filtres, tableau, export)
 static/style.css        Styles de la carte
 static/dashboard.css    Styles du tableau de bord
+tests/                  Tests des fonctions pures (géométrie, solaire, filtres) — ni base ni réseau
 requirements.txt        Dépendances Python (hors torch, installé séparément)
 Dockerfile               Image de l'application
 docker-compose.yml      Orchestration (web + PostgreSQL) + volumes persistants
@@ -241,7 +262,8 @@ docker-compose.yml      Orchestration (web + PostgreSQL) + volumes persistants
 - `GET /api/company_roof?lon=&lat=` — cherche le toit (OSM, toit détecté/tracé, ou bâtiment Microsoft) contenant ces coordonnées (test point-dans-polygone par ray casting sur les candidats dans un rayon de ~300m), retourne sa surface, sa source et son polygone
 - `GET /api/geocode?q=` — géocode un nom de lieu via Nominatim/OSM (restreint au Maroc), utilisé par la barre de recherche
 - `GET /dashboard` — tableau de bord commercial
-- `GET /api/prospects?min_kwc=&city=&category=&search=&limit=&offset=` — prospects avec leur potentiel solaire, triés par puissance décroissante, accompagnés des statistiques globales et de `total_filtered` (nombre total après filtres, pour la pagination). `limit` vaut 50 par défaut, `offset` 0
+- `GET /api/prospect_filters` — villes et catégories présentes parmi les prospects calculés, triées par fréquence et accompagnées du nombre de prospects, pour alimenter les listes déroulantes du tableau de bord
+- `GET /api/prospects?min_kwc=&city=&category=&search=&limit=&offset=` — prospects avec leur potentiel solaire, triés par puissance décroissante, accompagnés des statistiques globales et de `total_filtered` (nombre total après filtres, pour la pagination). `limit` vaut 50 par défaut, `offset` 0. `city` et `category` sont comparés à l'identique (casse et espaces de bord ignorés), `search` reste flou sur le nom et l'adresse
 - `GET /api/prospects.csv?...` — même liste au format CSV (séparateur `;`, BOM UTF-8 pour Excel), mêmes filtres
 - `GET /api/unmatched_roofs.csv?min_area=` — export CSV de la **zone** (latitude min/max, longitude min/max — rectangle englobant du polygone), surface et potentiel des grands toits (Microsoft ou IA/tracé manuel, `min_area` en m², défaut 2000) sans aucune entreprise connue à proximité. Le flux normal part des entreprises pour chercher leur toit ; cette liste couvre l'angle mort inverse : de grands bâtiments détectés mais absents du fichier scraper. Sert de base pour rechercher manuellement (ou via un scraper Google Maps) quelle entreprise occupe cette zone
 
@@ -281,4 +303,4 @@ La densité de la grille de points (`points_per_side`) est le principal levier d
 - Les données OSM proviennent de contributions collaboratives : la couverture et la précision varient selon les zones (meilleure en centre-ville, plus partielle en périphérie/zones rurales) — la détection IA vise à combler ces zones non cartographiées.
 - Le premier clic pour la détection IA après démarrage du serveur peut être plus lent (téléchargement du modèle + chargement en mémoire) ; les clics suivants sont plus rapides.
 - La sélection de zone n'a pas de limite de taille : une très grande zone peut prendre plusieurs minutes à analyser (calcul CPU). Le serveur Flask tourne en mode `threaded=True` afin qu'une détection de zone longue ne bloque pas les autres requêtes (chargement des bâtiments, entreprises, etc.) pendant son exécution.
-- L'estimation de panneaux solaires suppose des panneaux de 1.7 m² (1.0m × 1.7m), 400 W chacun, sur 70% de la surface du toit (le reste = accès/marges/obstacles) — hypothèses simplificatrices, ajustables dans `static/app.js` (constantes `SOLAR_PANEL_AREA_M2`, `SOLAR_PANEL_POWER_W`, `SOLAR_USABLE_ROOF_FRACTION`), sans tenir compte de l'orientation/inclinaison réelle du toit.
+- L'estimation de panneaux solaires suppose des panneaux de 1.7 m² (1.0m × 1.7m), 400 W chacun, sur 70% de la surface du toit (le reste = accès/marges/obstacles), sans tenir compte de l'orientation/inclinaison réelle du toit. Ces hypothèses vivent **à un seul endroit**, `domain/solar.py` : le serveur, le calcul en masse et la carte s'en servent tous (la carte les reçoit dans la page, via `window.SOLAR_CONFIG`), là où elles étaient auparavant recopiées dans trois fichiers — donc corrigibles à deux endroits sur trois. Elles se surchargent par l'environnement : `SOLAR_PANEL_AREA_M2`, `SOLAR_PANEL_POWER_W`, `SOLAR_USABLE_ROOF_FRACTION`. Une valeur illisible retombe sur le défaut plutôt que d'empêcher le démarrage.

@@ -93,12 +93,22 @@ html, body {
   align-items: center;
 }
 
-.filters input {
+.filters input,
+.filters select {
   padding: 9px 12px;
   border: 1px solid #cfd8dc;
   border-radius: 8px;
   font-size: 14px;
   min-width: 170px;
+  background: #fff;
+  color: #263238;
+  font-family: inherit;
+}
+
+/* Les listes de villes et de catégories peuvent être longues : on borne leur
+   largeur pour qu'un libellé à rallonge ne repousse pas les boutons. */
+.filters select {
+  max-width: 260px;
 }
 
 .filters button {

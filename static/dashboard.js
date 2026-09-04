@@ -90,7 +90,10 @@ function renderStats(summary) {
   );
 }
 
-function renderRows(prospects) {
+// `startRank` est le rang du premier prospect de la page. Sans lui, la
+// numérotation repartait de 1 à chaque page : le 51e prospect par puissance
+// s'affichait « 1 », au même rang que la plus grosse toiture de la base.
+function renderRows(prospects, startRank) {
   if (!prospects.length) {
     bodyEl.innerHTML = `<tr><td colspan="11" class="empty">
       Aucun prospect ne correspond. Lancez <code>python compute_solar_potential.py</code>
@@ -119,7 +122,7 @@ function renderRows(prospects) {
 
       return `
         <tr${isShared ? ' class="is-shared"' : ""}>
-          <td class="rank">${idx + 1}</td>
+          <td class="rank">${fmt(startRank + idx)}</td>
           <td>
             <span class="company-name">${escapeHtml(p.name)}</span>
             ${p.address ? `<span class="company-address">${escapeHtml(p.address)}</span>` : ""}
@@ -183,16 +186,48 @@ async function load() {
     const resp = await fetch(`/api/prospects?${params.toString()}`);
     const data = await resp.json();
     if (!resp.ok) throw new Error(data.error || "Erreur");
-    renderStats(data.summary);
-    renderRows(data.prospects);
-    renderPagination(data.total_filtered);
 
     const start = data.total_filtered === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+    renderStats(data.summary);
+    renderRows(data.prospects, start);
+    renderPagination(data.total_filtered);
+
     const end = start + data.prospects.length - 1;
     resultCountEl.textContent = `${fmt(start)}–${fmt(end)} sur ${fmt(data.total_filtered)} prospect(s)`;
   } catch (err) {
     bodyEl.innerHTML = `<tr><td colspan="11" class="empty">Erreur de chargement : ${escapeHtml(err.message)}</td></tr>`;
     paginationEl.innerHTML = "";
+  }
+}
+
+// Villes et catégories proposées à partir de ce que contient réellement la
+// base. Les deux champs étaient libres : il fallait deviner l'orthographe
+// exacte (« Mohammédia », « Âïn-Harrouda ») pour obtenir autre chose qu'une
+// liste vide. Le nombre entre parenthèses annonce combien de lignes le choix
+// va produire. Les valeurs sont triées par fréquence : les secteurs utiles
+// arrivent en tête d'une liste qui compte plusieurs centaines de catégories.
+function fillSelect(selectEl, values) {
+  const placeholder = selectEl.options[0];
+  selectEl.innerHTML = "";
+  selectEl.appendChild(placeholder);
+  values.forEach(({ value, count }) => {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = `${value} (${fmt(count)})`;
+    selectEl.appendChild(opt);
+  });
+}
+
+async function loadFilterOptions() {
+  try {
+    const resp = await fetch("/api/prospect_filters");
+    if (!resp.ok) return;
+    const data = await resp.json();
+    fillSelect(cityEl, data.cities);
+    fillSelect(categoryEl, data.categories);
+  } catch (err) {
+    // Les listes restent réduites à leur option « Toutes » : le tableau et les
+    // autres filtres continuent de fonctionner.
   }
 }
 
@@ -215,4 +250,9 @@ document.getElementById("reset-filters").addEventListener("click", () => {
   })
 );
 
+// Choisir dans une liste est un geste complet : inutile de demander en plus de
+// cliquer sur « Filtrer ».
+[cityEl, categoryEl].forEach((el) => el.addEventListener("change", applyFiltersAndReload));
+
+loadFilterOptions();
 load();

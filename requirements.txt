@@ -17,6 +17,11 @@ timm==1.0.29
 
 openpyxl==3.1.5
 
+# Les tests tournent dans l'image, comme tout le reste du projet
+# (`docker compose exec web python -m pytest`) : les sortir dans un
+# requirements-dev.txt les rendrait ininstallables là où on les exécute.
+pytest==8.3.4
+
 # MobileSAM épinglé sur un commit précis, depuis un fork miroir (et non le
 # dépôt original ChaoningZhang/MobileSAM) : ce dépôt n'ayant pas de version
 # publiée sur PyPI, chaque build dépendait de la disponibilité du dépôt

@@ -461,14 +461,16 @@ const tooltipEl = document.getElementById("tooltip");
 const statusEl = document.getElementById("status");
 const citySelectEl = document.getElementById("city-select");
 
-const SOLAR_PANEL_AREA_M2 = 1.7; // 1.0m x 1.7m
-const SOLAR_PANEL_POWER_W = 400;
-const SOLAR_USABLE_ROOF_FRACTION = 0.7;
+// Hypothèses d'installation injectées par le serveur (domain/solar.py, via un
+// script en tête de page) : la carte annonce ainsi exactement la puissance que
+// le tableau de bord a stockée en base, au lieu d'en recalculer une avec ses
+// propres constantes.
+const SOLAR = window.SOLAR_CONFIG;
 
 function estimateSolarPanels(area_m2) {
-  if (!area_m2 || area_m2 <= 0) return null;
-  const nPanels = Math.floor((area_m2 * SOLAR_USABLE_ROOF_FRACTION) / SOLAR_PANEL_AREA_M2);
-  const capacityKWc = (nPanels * SOLAR_PANEL_POWER_W) / 1000;
+  if (!area_m2 || area_m2 <= 0 || !SOLAR) return null;
+  const nPanels = Math.floor((area_m2 * SOLAR.usable_roof_fraction) / SOLAR.panel_area_m2);
+  const capacityKWc = (nPanels * SOLAR.panel_power_w) / 1000;
   return { nPanels, capacityKWc };
 }
 

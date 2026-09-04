@@ -58,6 +58,10 @@
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
     crossorigin=""
   ></script>
+  {# Hypothèses d'installation servies par domain/solar.py : la carte ne
+     redéfinit plus les siennes, elle annonce donc la même puissance que le
+     tableau de bord et le calcul en masse. #}
+  <script>window.SOLAR_CONFIG = {{ solar_config | tojson }};</script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

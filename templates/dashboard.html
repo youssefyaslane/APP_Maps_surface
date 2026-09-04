@@ -22,8 +22,12 @@
 
   <section class="filters">
     <input type="text" id="filter-search" placeholder="🔍 Rechercher (nom, adresse)" />
-    <input type="text" id="filter-city" placeholder="Ville" />
-    <input type="text" id="filter-category" placeholder="Catégorie (ex: Fabricant)" />
+    <select id="filter-city" aria-label="Ville">
+      <option value="">Toutes les villes</option>
+    </select>
+    <select id="filter-category" aria-label="Catégorie">
+      <option value="">Toutes les catégories</option>
+    </select>
     <input type="number" id="filter-min-kwc" placeholder="Puissance min. (kWc)" min="0" step="10" />
     <button id="apply-filters">Filtrer</button>
     <button id="reset-filters" class="secondary">Réinitialiser</button>

@@ -15,6 +15,8 @@ import requests
 from flask import Flask, Response, jsonify, render_template, request
 
 import segmentation
+from domain.solar import config as solar_config
+from domain.solar import estimate_solar as _estimate_solar
 
 app = Flask(__name__)
 
@@ -298,20 +300,6 @@ def _recompute_solar_for_companies(company_ids):
                 )
         finally:
             pool.putconn(conn)
-
-
-# Hypothèses d'installation, identiques à l'affichage carte (static/app.js) et
-# au calcul en masse (compute_solar_potential.py).
-SOLAR_PANEL_AREA_M2 = 1.7
-SOLAR_PANEL_POWER_W = 400
-SOLAR_USABLE_ROOF_FRACTION = 0.7
-
-
-def _estimate_solar(area_m2):
-    if not area_m2 or area_m2 <= 0:
-        return 0, 0.0
-    n_panels = int(area_m2 * SOLAR_USABLE_ROOF_FRACTION / SOLAR_PANEL_AREA_M2)
-    return n_panels, round(n_panels * SOLAR_PANEL_POWER_W / 1000, 2)
 
 
 def _companies_inside_polygon(cur, polygon, only_computed=False, include_nearby=False):
@@ -955,7 +943,11 @@ def landing():
 
 @app.route("/carte")
 def index():
-    return render_template("index.html")
+    # Les hypothèses solaires sont injectées dans la page plutôt que récupérées
+    # par un appel : un survol de bâtiment peut survenir avant qu'une requête
+    # asynchrone soit revenue, et la carte afficherait alors une puissance
+    # calculée sur des valeurs de repli — donc différente du tableau de bord.
+    return render_template("index.html", solar_config=solar_config())
 
 
 @app.route("/dashboard")
@@ -1431,12 +1423,17 @@ def _prospects_filter_clauses(min_kwc=None, city=None, category=None, search=Non
     if min_kwc is not None:
         clauses.append(f"{p}solar_kwc >= %s")
         params.append(min_kwc)
+    # Ville et catégorie viennent désormais de listes déroulantes alimentées par
+    # /api/prospect_filters : la valeur est exacte. Un ILIKE '%...%' ferait
+    # remonter les catégories englobantes (choisir « Fabricant » ramenait aussi
+    # « Fabricant de meubles »), et le nombre affiché en face du choix ne
+    # correspondrait plus au nombre de lignes obtenues.
     if city:
-        clauses.append(f"{p}city ILIKE %s")
-        params.append(f"%{city}%")
+        clauses.append(f"lower(trim({p}city)) = lower(%s)")
+        params.append(city.strip())
     if category:
-        clauses.append(f"{p}category ILIKE %s")
-        params.append(f"%{category}%")
+        clauses.append(f"lower(trim({p}category)) = lower(%s)")
+        params.append(category.strip())
     if search:
         clauses.append(f"({p}name ILIKE %s OR {p}address ILIKE %s)")
         params.extend([f"%{search}%", f"%{search}%"])
@@ -1563,6 +1560,58 @@ def _prospects_summary():
         "big_prospects": big,
         "big_prospect_threshold": BIG_PROSPECT_KWC,
     }
+
+
+def _prospect_filter_values():
+    """Villes et catégories réellement présentes parmi les prospects calculés.
+
+    Les filtres étaient deux champs libres : sur 21 villes et plus de cent
+    catégories, un commercial devait deviner l'orthographe exacte (« Mohammédia »
+    accentué, « Âïn-Harrouda ») pour que le ILIKE trouve quelque chose. La liste
+    ne propose que des valeurs qui rendront un résultat non vide.
+    """
+    clauses, _ = _prospects_filter_clauses()
+    where = " AND ".join(clauses)
+
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            # Comptage des entreprises, et non des toits distincts : ce nombre
+            # annonce la longueur de la liste que le choix va produire. Compter
+            # les toitures donnerait « Siège social (94) » pour 97 lignes
+            # affichées, l'écart venant des immeubles partagés. Les toitures
+            # distinctes restent le bon décompte pour les cartes de
+            # statistiques, qui parlent d'installations à vendre.
+            cur.execute(
+                f"""
+                SELECT trim(city), count(*)
+                FROM companies
+                WHERE {where} AND city IS NOT NULL AND trim(city) <> ''
+                GROUP BY 1 ORDER BY 2 DESC, 1
+                """
+            )
+            cities = [{"value": r[0], "count": r[1]} for r in cur.fetchall()]
+
+            cur.execute(
+                f"""
+                SELECT trim(category), count(*)
+                FROM companies
+                WHERE {where} AND category IS NOT NULL AND trim(category) <> ''
+                GROUP BY 1 ORDER BY 2 DESC, 1
+                """
+            )
+            categories = [{"value": r[0], "count": r[1]} for r in cur.fetchall()]
+    finally:
+        pool.putconn(conn)
+
+    return {"cities": cities, "categories": categories}
+
+
+@app.route("/api/prospect_filters")
+def api_prospect_filters():
+    """Valeurs proposées par les listes déroulantes du tableau de bord."""
+    return jsonify(_prospect_filter_values())
 
 
 @app.route("/api/prospects")
@@ -1722,14 +1771,56 @@ def _city_viewport_bbox(center, half_span_deg=0.012):
     return (lat - half_span_deg, lon - half_span_deg, lat + half_span_deg, lon + half_span_deg)
 
 
+def _osm_buildings_cover(bbox):
+    """Vrai si l'extrait OpenStreetMap ingéré couvre déjà cette zone.
+
+    L'import se fait sur une emprise choisie (aujourd'hui la région de
+    Casablanca), pas sur le pays entier : la question n'est donc pas « la table
+    est-elle remplie » mais « contient-elle cet endroit ». Une ville hors
+    emprise continue de passer par Overpass.
+    """
+    south, west, north, east = bbox
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM osm_buildings
+                    WHERE centroid_lat BETWEEN %s AND %s
+                      AND centroid_lon BETWEEN %s AND %s
+                )
+                """,
+                (south, north, west, east),
+            )
+            return cur.fetchone()[0]
+    except psycopg2.Error:
+        conn.rollback()
+        return False  # table absente : l'import n'a pas encore été lancé
+    finally:
+        pool.putconn(conn)
+
+
 def _prewarm_cities():
-    """Précharge en arrière-plan les tuiles autour de chaque ville pour un premier affichage instantané."""
+    """Précharge en arrière-plan les tuiles des villes qu'OpenStreetMap ingéré
+    ne couvre pas encore, pour un premier affichage instantané.
+
+    Depuis l'ingestion de l'extrait Geofabrik, la carte lit la base pour la
+    région importée : y préchauffer Overpass lançait des dizaines d'appels
+    réseau à chaque démarrage pour remplir un cache que plus personne ne
+    consultait. Les villes hors emprise, elles, en dépendent toujours.
+    """
+    # Chargé dans tous les cas : c'est le cache des zones non ingérées, et le
+    # perdre ferait retomber ces villes sur Overpass à chaque redémarrage.
     _load_disk_cache()
 
     tiles_to_warm = set()
     now = time.time()
     for city in CITIES.values():
         bbox = _city_viewport_bbox(city["center"])
+        if _osm_buildings_cover(bbox):
+            continue
         for tile_key in _tile_keys_for_bbox(bbox):
             cached = _cache.get(tile_key)
             if not cached or now - cached["ts"] >= CACHE_TTL_SECONDS:

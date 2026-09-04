@@ -22,11 +22,7 @@ import psycopg2
 os.environ.setdefault("WERKZEUG_RUN_MAIN", "true")
 
 import app as flask_app
-
-# Mêmes hypothèses que l'estimation affichée côté carte (static/app.js).
-SOLAR_PANEL_AREA_M2 = 1.7
-SOLAR_PANEL_POWER_W = 400
-SOLAR_USABLE_ROOF_FRACTION = 0.7
+from domain.solar import estimate_solar
 
 # Recherches de toit menées en parallèle (l'appel Overpass domine le temps de
 # calcul). Volontairement modéré pour ne pas se faire limiter par les miroirs.
@@ -34,13 +30,6 @@ MAX_WORKERS = 6
 BATCH_SIZE = 50
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://maps:maps@localhost:5432/maps")
-
-
-def estimate_solar(area_m2):
-    if not area_m2 or area_m2 <= 0:
-        return 0, 0.0
-    n_panels = int(area_m2 * SOLAR_USABLE_ROOF_FRACTION / SOLAR_PANEL_AREA_M2)
-    return n_panels, round(n_panels * SOLAR_PANEL_POWER_W / 1000, 2)
 
 
 def reset_orphans(conn):
