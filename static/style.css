@@ -92,6 +92,17 @@ html, body {
   color: #fff;
 }
 
+.home-link {
+  display: inline-block;
+  text-decoration: none;
+  color: #263238;
+}
+
+.home-link:hover {
+  background: #263238;
+  color: #fff;
+}
+
 .points-controls {
   position: absolute;
   z-index: 1000;

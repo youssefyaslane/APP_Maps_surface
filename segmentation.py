@@ -19,7 +19,7 @@ from PIL import Image
 CACHE_DIR = os.environ.get("CACHE_DIR", os.path.dirname(__file__))
 os.makedirs(CACHE_DIR, exist_ok=True)
 CHECKPOINT_PATH = os.path.join(CACHE_DIR, "mobile_sam.pt")
-CHECKPOINT_URL = "https://github.com/ChaoningZhang/MobileSAM/raw/master/weights/mobile_sam.pt"
+CHECKPOINT_URL = "https://github.com/youssefyaslane/MobileSAM/raw/master/weights/mobile_sam.pt"
 
 TILE_SIZE_PX = 256
 ZOOM = 19  # niveau de zoom XYZ utilisé pour l'extraction (haute résolution)

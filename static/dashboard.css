@@ -28,6 +28,8 @@ html, body {
   opacity: 0.85;
 }
 
+.header-links { display: flex; gap: 10px; }
+
 .btn-map {
   background: rgba(255, 255, 255, 0.15);
   color: #fff;
