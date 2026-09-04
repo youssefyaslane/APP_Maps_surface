@@ -14,8 +14,10 @@
 </head>
 <body>
   <header class="topbar">
-    <h1>🇲🇦 Carte du Maroc — Surface des bâtiments</h1>
-    <a href="/" class="zone-btn home-link">🏠 Accueil</a>
+    <a class="topbar-brand" href="/">
+      <img class="topbar-logo" src="{{ url_for('static', filename='img/logo-netis.png') }}" alt="Netis" />
+      <h1>Carte du Maroc — Surface des bâtiments</h1>
+    </a>
     <select id="city-select" class="city-select"></select>
     <form id="search-form" class="search-form">
       <input
@@ -28,7 +30,6 @@
       <button id="search-btn" class="search-btn" type="submit">🔍</button>
     </form>
     <button id="points-select-btn" class="zone-btn" type="button">✏️ Tracer un toit</button>
-    <a href="/dashboard" class="zone-btn dashboard-link">☀️ Prospects solaires</a>
     <p class="hint" id="hint">Survolez un bâtiment (OSM) pour voir sa surface, ou cliquez n'importe où pour une détection IA par imagerie satellite.</p>
   </header>
 

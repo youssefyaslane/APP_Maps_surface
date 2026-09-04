@@ -9,14 +9,31 @@ html, body {
   position: absolute;
   z-index: 1000;
   top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 12px;
   background: rgba(255, 255, 255, 0.95);
   padding: 10px 20px;
   border-radius: 10px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-  text-align: center;
+  text-align: left;
   max-width: 90vw;
+}
+
+/* Logo + titre forment le lien de retour à l'accueil, même principe que sur
+   le tableau de bord et la page Comptes (static/dashboard.css) : plus besoin
+   d'un bouton « Accueil » séparé dans une barre déjà chargée de contrôles. */
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+}
+
+.topbar-brand:hover { opacity: 0.85; }
+
+.topbar-logo {
+  height: 24px;
+  width: auto;
+  display: block;
 }
 
 .topbar h1 {
@@ -76,30 +93,6 @@ html, body {
 .zone-btn.active {
   background: #2979ff;
   border-color: #2979ff;
-  color: #fff;
-}
-
-/* Lien vers le tableau de bord : rendu comme les boutons voisins. */
-.dashboard-link {
-  display: inline-block;
-  text-decoration: none;
-  color: #ef6c00;
-  border-color: #ef6c00;
-}
-
-.dashboard-link:hover {
-  background: #ef6c00;
-  color: #fff;
-}
-
-.home-link {
-  display: inline-block;
-  text-decoration: none;
-  color: #263238;
-}
-
-.home-link:hover {
-  background: #263238;
   color: #fff;
 }
 
