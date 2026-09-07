@@ -552,10 +552,14 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
 }
 .sec-link:hover, .sec-link:focus-visible { color: var(--bleu); }
 
+/* Les séparateurs étaient des interstices de grille (`gap: 1px` laissant voir
+   le fond du conteneur). Combinés aux hauteurs de ligne fractionnaires plus
+   bas, ils tombaient entre deux pixels et l'antialiasing en effaçait un au
+   hasard : une ligne sur cinq paraissait n'avoir aucun trait. Ce sont
+   maintenant de vraies bordures, sur des lignes de hauteur entière. */
 .top-list {
   display: grid;
-  gap: 1px;
-  background: var(--trait);
+  background: var(--surface);
   border: 1px solid var(--trait);
   border-radius: 12px;
   overflow: hidden;
@@ -571,6 +575,9 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
   animation: fade-up 0.5s ease both;
   transition: background 0.15s ease;
 }
+
+.cible + .cible { border-top: 1px solid var(--trait); }
+
 .cible:hover { background: var(--trait-pale); }
 
 .cible:nth-child(1) { animation-delay: 0.30s; }
@@ -579,9 +586,15 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
 .cible:nth-child(4) { animation-delay: 0.48s; }
 .cible:nth-child(5) { animation-delay: 0.54s; }
 
+/* Hauteurs de ligne en pixels entiers, et non en multiple de la taille de
+   police : le `line-height: 1.6` global appliqué à des tailles fractionnaires
+   (15,5 px, 13,5 px, 17 px) donnait des lignes de 77,6 px, donc des bordures
+   posées entre deux pixels. Ici chaque ligne fait exactement 72 px de contenu
+   plus 32 px de marge, et les traits tombent sur des pixels pleins. */
 .cible-rang {
   font-family: "Bricolage Grotesque", sans-serif;
   font-size: 15px;
+  line-height: 20px;
   font-weight: 700;
   color: var(--ink-pale);
   text-align: center;
@@ -591,18 +604,25 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
 .cible-id b {
   display: block;
   font-size: 15.5px;
+  line-height: 22px;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cible-id span { font-size: 13px; color: var(--ink-pale); }
+.cible-id span { font-size: 13px; line-height: 18px; color: var(--ink-pale); }
 
 .cible-chiffres { display: flex; gap: 18px; align-items: baseline; }
-.cible-m2 { font-size: 14px; color: var(--ink-doux); font-variant-numeric: tabular-nums; }
+.cible-m2 {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink-doux);
+  font-variant-numeric: tabular-nums;
+}
 .cible-kwc {
   font-family: "Bricolage Grotesque", sans-serif;
   font-size: 17px;
+  line-height: 20px;
   font-weight: 700;
   color: var(--vert);
   font-variant-numeric: tabular-nums;
@@ -610,12 +630,19 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
 }
 
 .cible-actions { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
-.lien-tel { font-size: 13.5px; font-weight: 600; color: var(--bleu); text-decoration: none; }
+.lien-tel {
+  font-size: 13.5px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--bleu);
+  text-decoration: none;
+}
 .lien-tel:hover { text-decoration: underline; }
-.sans-tel { font-size: 13px; color: var(--ink-pale); font-style: italic; }
+.sans-tel { font-size: 13px; line-height: 20px; color: var(--ink-pale); font-style: italic; }
 
 .lien-carte {
   font-size: 13px;
+  line-height: 20px;
   font-weight: 600;
   color: var(--ink-doux);
   text-decoration: none;
