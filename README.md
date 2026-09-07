@@ -56,11 +56,6 @@ docker compose exec web python -m pytest tests/ -q
 docker compose exec web python -m scripts.create_user identifiant
 ```
 
-**Sauvegarder la base**
-```bash
-./scripts/backup_db.sh
-```
-
 Les tests portent sur les fonctions pures (géométrie, potentiel solaire, clauses
 de filtrage) et ne demandent ni base ni réseau. L'image embarquant une copie du
 code, il faut la reconstruire (`docker compose up -d --build web`) pour tester
@@ -293,29 +288,6 @@ Chaque toit détecté par IA ou tracé manuellement enregistre son auteur
 dans la table `audit_log` (qui, quoi, quand) — y compris pour les toits
 supprimés, dont la ligne d'origine disparaît mais dont la trace, elle, reste.
 
-## Sauvegardes
-
-```bash
-./scripts/backup_db.sh
-```
-
-Écrit un dump compressé et daté dans `backups/` (hors dépôt — `.gitignore`),
-via `pg_dump` exécuté dans le conteneur `db`, et supprime les sauvegardes de
-plus de 14 jours. Le script s'exécute sur l'hôte, pas dans un conteneur : il
-invoque `docker compose`, et le conteneur `web` n'a pas le client `pg_dump`
-installé.
-
-Pour restaurer :
-
-```bash
-gunzip -c backups/maps_2026-01-15_030001.sql.gz | docker compose exec -T db psql -U maps -d maps
-```
-
-Une tâche planifiée (cron) sur l'hôte, exécutant ce script chaque nuit, évite
-de dépendre de la mémoire de quelqu'un pour que la sauvegarde ait
-effectivement lieu — 900 toits tracés ou détectés à la main représentent des
-semaines de travail qu'un incident de disque effacerait d'un coup sans elle.
-
 ## Architecture
 
 ```
@@ -327,7 +299,6 @@ import_ms_buildings.py  Import des empreintes de bâtiments Microsoft (.geojsonl
 compute_solar_potential.py  Calcul en masse du potentiel solaire des entreprises (alimente /dashboard)
 export_unmatched_roofs.py   Export CSV des grands toits sans entreprise connue à proximité
 create_user.py           Crée ou met à jour un compte (identifiant + mot de passe)
-backup_db.sh             Sauvegarde compressée et datée de la base, à lancer sur l'hôte
 templates/index.html    Page principale (carte Leaflet)
 templates/dashboard.html    Tableau de bord commercial (liste de prospects)
 templates/login.html    Page de connexion
