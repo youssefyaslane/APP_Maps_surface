@@ -48,7 +48,6 @@ h1, h2, h3, .fig b, .step-n, .brand-mark {
 .nav {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 20px;
   padding: 10px 34px;
   background: var(--surface);
@@ -57,6 +56,11 @@ h1, h2, h3, .fig b, .step-n, .brand-mark {
   top: 0;
   z-index: 20;
 }
+
+/* La pastille utilisateur est sortie de .nav-links (voir le gabarit) : c'est
+   ce margin-left qui reproduit l'ancien `justify-content: space-between`, en
+   poussant navigation et compte ensemble contre le bord droit. */
+.nav-links { margin-left: auto; }
 
 .brand { display: flex; align-items: center; gap: 14px; text-decoration: none; }
 .brand-logo { height: 46px; width: auto; display: block; }
@@ -520,8 +524,46 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
 .foot-links a:hover { color: var(--turquoise); }
 
 @media (max-width: 640px) {
-  .nav { padding: 12px 18px; }
+  /* Le header tenait sur une seule ligne : à 430 px il réclamait près de
+     710 px et la pastille utilisateur sortait de l'écran. Il passe donc sur
+     deux rangées — marque et compte, puis la navigation sur toute la largeur
+     — au lieu de déborder. */
+  .nav {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px 16px;
+  }
+
+  .brand { gap: 10px; }
+  .brand-logo { height: 34px; }
   .brand-app { display: none; }
+
+  .user-chip { order: 2; margin-left: auto; gap: 6px; }
+  .logout-link { padding: 5px 10px; font-size: 12px; }
+
+  /* Largeur pleine : force le retour à la ligne quelle que soit la place
+     restante, plutôt que de dépendre du nombre d'entrées du menu. */
+  .nav-links {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+    gap: 4px;
+  }
+
+  .nav-links a { padding: 7px 11px; font-size: 13.5px; }
+  .nav-cta { padding: 8px 13px !important; margin-left: 0; }
+
+  /* Le panneau du menu Administration est en position absolue sur 260 px,
+     calé à droite de son déclencheur : près du bord il sortait de l'écran.
+     Rendu au .nav (positionné, car sticky), il s'étend d'un bord à l'autre. */
+  .nav-dropdown { position: static; }
+
+  .nav-dropdown-panel {
+    left: 16px;
+    right: 16px;
+    width: auto;
+  }
+
   .hero { padding: 64px 18px 0; }
   main { padding: 104px 18px 72px; }
   .foot { padding: 22px 18px 30px; }
