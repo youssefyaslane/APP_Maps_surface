@@ -12,8 +12,47 @@
   }
 }
 
+/* Le passage à une colonne existait déjà, mais les marges restaient calées sur
+   le grand écran : 28 px de part et d'autre plus 22 px de carte laissaient
+   moins de 330 px utiles sur un écran de 430. */
+@media (max-width: 640px) {
+  .admin-main {
+    gap: 14px;
+    padding: 14px 12px 24px;
+  }
+
+  .admin-form-card,
+  .admin-list-card {
+    padding: 16px 14px;
+  }
+
+  .admin-form input[type="text"],
+  .admin-form input[type="password"],
+  .admin-form button {
+    /* 16 px : en dessous, iOS zoome automatiquement sur le champ actif et
+       laisse la page décalée une fois la saisie finie. */
+    font-size: 16px;
+  }
+
+  .admin-table {
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .admin-table th,
+  .admin-table td {
+    padding: 8px 10px;
+  }
+}
+
 .admin-form-card,
 .admin-list-card {
+  /* Un élément de grille vaut par défaut `min-width: auto`, c'est-à-dire la
+     largeur minimale de son contenu : la carte s'étirait donc à la largeur du
+     tableau (~507 px sur mobile) et poussait la page au-delà de la fenêtre,
+     sans jamais laisser .admin-table-wrap défiler. C'est ce zéro qui autorise
+     la carte à être plus étroite que ce qu'elle contient. */
+  min-width: 0;
   background: #fff;
   border-radius: 10px;
   padding: 20px 22px;
@@ -52,6 +91,11 @@
 
 .admin-form input[type="text"],
 .admin-form input[type="password"] {
+  /* Sans box-sizing, les 12 px de marge interne et la bordure s'ajoutent à la
+     largeur : les champs débordaient de leur carte, discrètement sur grand
+     écran et franchement sur mobile, où ils élargissaient toute la page. */
+  box-sizing: border-box;
+  width: 100%;
   padding: 9px 12px;
   border: 1px solid #cfd8dc;
   border-radius: 8px;
@@ -79,6 +123,16 @@
 
 .admin-form button:hover {
   background: #256428;
+}
+
+/* Quatre colonnes dont un identifiant qui peut être long et sans espace
+   (« Adnane_talal_Netis_mr ») : sous 430 px le tableau réclame plus de place
+   que la carte. Il défile horizontalement dans son propre cadre plutôt que
+   d'élargir la page entière, ce qui décalerait aussi l'en-tête et le
+   formulaire. */
+.admin-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .admin-table {

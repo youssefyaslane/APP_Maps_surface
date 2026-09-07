@@ -411,3 +411,41 @@ td.num strong {
 tr.is-shared td {
   background: #fffaf2;
 }
+
+/* ---------- écrans étroits : en-tête ----------
+   Cette feuille n'avait aucune règle mobile. L'en-tête est partagé par le
+   tableau de bord et la page Comptes : à 430 px, la marque et la pastille
+   utilisateur se disputaient une seule ligne, avec un sous-titre long
+   (« Créer un accès pour un commercial ou un autre administrateur ») qui
+   poussait le tout. Les deux blocs passent donc l'un sous l'autre. */
+@media (max-width: 640px) {
+  .dash-header {
+    gap: 12px;
+    padding: 14px 16px;
+  }
+
+  .dash-brand { gap: 11px; }
+
+  .dash-logo {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+  }
+
+  .dash-header h1 { font-size: 18px; }
+
+  .subtitle {
+    font-size: 12.5px;
+    line-height: 1.35;
+  }
+
+  /* Largeur pleine : la pastille descend sous la marque au lieu de la
+     comprimer, et reste alignée à gauche avec elle. */
+  .header-links {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .user-chip { margin-left: 0; }
+  .logout-btn { padding: 5px 10px; font-size: 12px; }
+}

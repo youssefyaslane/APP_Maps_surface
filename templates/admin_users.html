@@ -64,6 +64,9 @@
 
     <section class="admin-list-card">
       <h2>Comptes existants ({{ users | length }})</h2>
+      {# Cadre de défilement : sur mobile le tableau déborde, il doit glisser
+         seul plutôt qu'élargir la page (voir static/admin.css). #}
+      <div class="admin-table-wrap">
       <table class="admin-table">
         <thead>
           <tr>
@@ -84,6 +87,7 @@
           {% endfor %}
         </tbody>
       </table>
+      </div>
     </section>
   </main>
 </body>
