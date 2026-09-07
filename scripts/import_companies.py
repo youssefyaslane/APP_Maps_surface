@@ -1,9 +1,15 @@
 """Importe les entreprises depuis un ou plusieurs fichiers Excel (exports de
 différents scrapers Google Maps) dans la table PostgreSQL `companies`.
-Usage: python -m scripts.import_companies [chemin.xlsx ...]
-Sans argument, importe tous les .xlsx trouvés dans Data_clients/."""
+Usage: python -m scripts.import_companies [--check] [chemin.xlsx ...]
+Sans argument, importe tous les .xlsx trouvés dans Data_clients/.
+
+--check n'écrit rien : il se contente de lister les villes du fichier et de
+signaler celles qui ne correspondent à aucune ville déjà en base. À lancer
+avant l'import réel."""
 import os
+import re
 import sys
+import unicodedata
 
 import openpyxl
 import psycopg2
@@ -37,6 +43,72 @@ def _first(*values):
         if v not in (None, ""):
             return v
     return None
+
+
+# --- Villes ---------------------------------------------------------------
+#
+# La colonne `city` des exports Google Places contient indifféremment une
+# ville, un quartier (« MAARIF », « CFC »), une boîte postale (« BP2628 ») ou
+# un fragment d'adresse (« droite », « 4eb057139409 »). Onze valeurs de ce
+# genre s'étaient retrouvées en base et polluaient le filtre du tableau de
+# bord, qui proposait des villes ne ramenant aucune entreprise.
+#
+# Le nettoyage ci-dessous est volontairement mécanique — espaces, suffixe pays,
+# code postal, casse et accents. Décider que « CFC » désigne Casablanca demande
+# une connaissance géographique qu'un script n'a pas : ces valeurs sont donc
+# signalées pour vérification, jamais réécrites au jugé.
+
+
+def _strip_accents(text):
+    return "".join(c for c in unicodedata.normalize("NFD", text) if not unicodedata.combining(c))
+
+
+def _normalise_city(raw):
+    """Nettoyage de forme, sans interprétation du contenu."""
+    if raw is None:
+        return None
+    s = re.sub(r"\s+", " ", str(raw)).strip()
+    s = re.sub(r"[,;]+$", "", s).strip()
+    s = re.sub(r"[,\s]+(maroc|morocco)$", "", s, flags=re.IGNORECASE).strip()
+    # Code postal accolé au nom (« Casablanca 20250 »). Aucune commune
+    # marocaine n'a de chiffre dans son nom, la règle est sans risque.
+    s = re.sub(r"[,\s]+\d{4,6}$", "", s).strip()
+    return s or None
+
+
+def _city_key(text):
+    """Clé de rapprochement : « casablanca maroc », « CASABLANCA » et
+    « Casablanca » désignent la même ville."""
+    return _strip_accents(text).lower()
+
+
+def load_known_cities(cur):
+    """Villes déjà présentes en base, prises comme référence d'orthographe.
+
+    Pas de liste figée dans le code : CITIES (app.py) ne connaît que six
+    grandes villes pour la navigation sur la carte et rejetterait Âïn-Harrouda,
+    Tit Mellil ou El Mansouria, qui sont pourtant de vraies communes.
+    """
+    cur.execute(
+        "SELECT DISTINCT trim(city) FROM companies "
+        "WHERE city IS NOT NULL AND trim(city) <> ''"
+    )
+    return {_city_key(r[0]): r[0] for r in cur.fetchall()}
+
+
+def resolve_city(raw, known):
+    """Renvoie (ville retenue, connue ?).
+
+    Une ville connue est réécrite avec l'orthographe déjà en base, pour éviter
+    qu'« Mohammadia » et « Mohammédia » comptent comme deux entrées du filtre.
+    """
+    city = _normalise_city(raw)
+    if not city:
+        return None, True
+    key = _city_key(city)
+    if key in known:
+        return known[key], True
+    return city, False
 
 
 def _find_twin_without_place_id(cur, name, lon, lat):
@@ -100,7 +172,7 @@ def report_possible_duplicates(conn):
     print("   À vérifier à la main : un même toit compté deux fois gonfle le potentiel total.")
 
 
-def import_companies(xlsx_path):
+def import_companies(xlsx_path, check_only=False, unknown_cities=None):
     wb = openpyxl.load_workbook(xlsx_path, read_only=True)
     ws = wb.active
     rows = ws.iter_rows(values_only=True)
@@ -118,6 +190,7 @@ def import_companies(xlsx_path):
     skipped = 0
     try:
         with conn, conn.cursor() as cur:
+            known = load_known_cities(cur)
             for row in rows:
                 lat = _first(get(row, "latitude"), get(row, "location/lat"), get(row, "Latitude"))
                 lon = _first(get(row, "longitude"), get(row, "location/lng"), get(row, "Longitude"))
@@ -135,7 +208,18 @@ def import_companies(xlsx_path):
                 website = _first(get(row, "website"), get(row, "Site Web"))
                 lon, lat = float(lon), float(lat)
 
-                values = (name, category, address, get(row, "city"), phone, email, website, rating)
+                city, city_known = resolve_city(get(row, "city"), known)
+                if not city_known and unknown_cities is not None:
+                    # Un exemple suffit à trancher : c'est l'adresse et les
+                    # coordonnées qui disent si « CFC » est une ville ou un
+                    # quartier de Casablanca.
+                    unknown_cities.setdefault(city, (name, address, lat, lon))
+
+                values = (name, category, address, city, phone, email, website, rating)
+
+                if check_only:
+                    inserted += 1
+                    continue
 
                 twin_id = None if place_id else _find_twin_without_place_id(cur, name, lon, lat)
                 if twin_id is not None:
@@ -172,18 +256,50 @@ def import_companies(xlsx_path):
     finally:
         conn.close()
 
-    print(f"Importé/mis à jour : {inserted}, ignoré (coordonnées ou nom manquants) : {skipped}")
+    verbe = "À importer" if check_only else "Importé/mis à jour"
+    print(f"{verbe} : {inserted}, ignoré (coordonnées ou nom manquants) : {skipped}")
+
+
+def report_unknown_cities(unknown_cities, check_only):
+    """Villes du fichier absentes de la base, à vérifier une par une."""
+    if not unknown_cities:
+        print("\n✓ Toutes les villes correspondent à des villes déjà en base.")
+        return
+
+    print(f"\n⚠ {len(unknown_cities)} ville(s) inconnue(s) — à vérifier :")
+    for city, (name, address, lat, lon) in sorted(unknown_cities.items()):
+        print(f"   « {city} »")
+        print(f"      ex. {name} — {address or 'sans adresse'}")
+        print(f"      https://www.google.com/maps/?q={lat},{lon}")
+    if check_only:
+        print("\n   Rien n'a été écrit. Corrigez le fichier source, ou relancez")
+        print("   sans --check si ces villes sont légitimes.")
+    else:
+        print("\n   Elles sont EN BASE et vont apparaître dans le filtre du tableau")
+        print("   de bord. Si ce sont des quartiers ou des fragments d'adresse,")
+        print("   corrigez-les avec une requête UPDATE sur companies.city.")
 
 
 if __name__ == "__main__":
-    paths = sys.argv[1:] if len(sys.argv) > 1 else _find_all_xlsx()
+    args = sys.argv[1:]
+    check_only = "--check" in args
+    args = [a for a in args if a != "--check"]
+
+    paths = args if args else _find_all_xlsx()
     if not paths:
         print(f"Aucun fichier .xlsx trouvé dans {DEFAULT_PATH}")
-        print("Usage: python -m scripts.import_companies [chemin.xlsx ...]")
+        print("Usage: python -m scripts.import_companies [--check] [chemin.xlsx ...]")
         sys.exit(1)
+
+    unknown_cities = {}
     for path in paths:
         print(f"--- {os.path.basename(path)} ---")
-        import_companies(path)
+        import_companies(path, check_only=check_only, unknown_cities=unknown_cities)
+
+    report_unknown_cities(unknown_cities, check_only)
+
+    if check_only:
+        sys.exit(1 if unknown_cities else 0)
 
     conn = psycopg2.connect(DATABASE_URL)
     try:

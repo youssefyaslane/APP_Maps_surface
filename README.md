@@ -18,6 +18,7 @@ docker compose logs web -f     # suit les logs en direct
 **Importer de nouvelles entreprises** (déposer le(s) fichier(s) `.xlsx` dans `Data_clients/` d'abord)
 ```bash
 docker compose cp Data_clients/mon_fichier.xlsx web:/app/Data_clients/mon_fichier.xlsx
+docker compose exec web python -m scripts.import_companies --check   # vérifie les villes, n'écrit rien
 docker compose exec web python -m scripts.import_companies
 ```
 
@@ -145,6 +146,20 @@ Sans argument, le script importe **tous** les `.xlsx` trouvés dans `Data_client
 Pour une ligne **sans `placeId`**, le dédoublonnage se rabat sur le nom exact à moins de 50 m d'une entreprise déjà connue. Sans ce repli, `ON CONFLICT (place_id)` ne se déclenchait jamais — deux `NULL` ne sont pas égaux pour un index unique — et chaque relance recréait la même entreprise indéfiniment.
 
 En fin d'import, le script signale les **doublons probables** : même nom à moins de 50 m mais `placeId` différents, c'est-à-dire deux passages du scraper sur le même établissement. C'est un avertissement, pas une fusion : la base contient de vrais homonymes distants (des noms de quartier employés comme raison sociale), et les fusionner perdrait des prospects réels.
+
+#### Vérifier les villes avant d'injecter
+
+La colonne `city` des exports Google Places contient indifféremment une ville, un quartier (`MAARIF`, `CFC`), une boîte postale (`BP2628`) ou un fragment d'adresse (`droite`, `4eb057139409`). Onze valeurs de ce genre s'étaient retrouvées en base et polluaient le filtre du tableau de bord, qui proposait des villes ne ramenant aucune entreprise.
+
+```bash
+python -m scripts.import_companies --check
+```
+
+`--check` n'écrit rien. Il applique le nettoyage de forme — espaces, suffixe `, Maroc`, code postal accolé, casse et accents — puis liste les villes qui ne correspondent à **aucune ville déjà en base**, avec un exemple d'entreprise et un lien Google Maps pour trancher. Il sort en code 1 s'il en trouve, ce qui permet de l'enchaîner : `python -m scripts.import_companies --check && python -m scripts.import_companies`.
+
+Le partage est volontaire : ce qui relève de l'orthographe est corrigé en silence (`casablanca maroc` → `Casablanca`, `Mohammédia` et `MOHAMMEDIA` fusionnés sur une seule entrée du filtre), mais décider que `CFC` désigne Casablanca demande une connaissance géographique qu'un script n'a pas — ces valeurs sont signalées, jamais réécrites au jugé.
+
+La référence est la base elle-même, pas une liste figée : `CITIES` (dans `app.py`) ne connaît que six grandes villes pour la navigation sur la carte et rejetterait Âïn-Harrouda, Tit Mellil ou El Mansouria, qui sont de vraies communes. Une nouvelle ville légitime est donc signalée une fois, puis reconnue une fois importée.
 
 Avec Docker, `Data_clients/` n'étant pas monté en volume (dossier exclu du dépôt), copiez d'abord le fichier dans le conteneur :
 
