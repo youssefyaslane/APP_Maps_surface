@@ -208,6 +208,7 @@ async function load() {
 // arrivent en tête d'une liste qui compte plusieurs centaines de catégories.
 function fillSelect(selectEl, values) {
   const placeholder = selectEl.options[0];
+  const selected = selectEl.value;
   selectEl.innerHTML = "";
   selectEl.appendChild(placeholder);
   values.forEach(({ value, count }) => {
@@ -216,11 +217,21 @@ function fillSelect(selectEl, values) {
     opt.textContent = `${value} (${fmt(count)})`;
     selectEl.appendChild(opt);
   });
+  // Le choix courant peut ne plus rien rendre une fois les autres filtres
+  // appliqués : il doit rester dans la liste, sinon il disparaît du menu sans
+  // que le tableau cesse d'être filtré dessus, et on ne peut plus l'annuler.
+  if (selected && !values.some((v) => v.value === selected)) {
+    const opt = document.createElement("option");
+    opt.value = selected;
+    opt.textContent = `${selected} (0)`;
+    selectEl.appendChild(opt);
+  }
+  selectEl.value = selected;
 }
 
 async function loadFilterOptions() {
   try {
-    const resp = await fetch("/api/prospect_filters");
+    const resp = await fetch(`/api/prospect_filters?${currentFilters()}`);
     if (!resp.ok) return;
     const data = await resp.json();
     fillSelect(cityEl, data.cities);
@@ -234,6 +245,11 @@ async function loadFilterOptions() {
 function applyFiltersAndReload() {
   currentPage = 1;
   load();
+  // Les nombres affichés en face de chaque choix dépendent des autres filtres
+  // actifs : sans ce rechargement, ils resteraient ceux du chargement initial
+  // et annonceraient « Casablanca (1080) » là où le tableau n'affiche que
+  // 86 lignes.
+  loadFilterOptions();
 }
 
 document.getElementById("apply-filters").addEventListener("click", applyFiltersAndReload);

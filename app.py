@@ -1874,16 +1874,23 @@ def _prospects_summary():
     }
 
 
-def _prospect_filter_values():
+def _prospect_filter_values(min_kwc=None, city=None, category=None, search=None):
     """Villes et catégories réellement présentes parmi les prospects calculés.
 
     Les filtres étaient deux champs libres : sur 21 villes et plus de cent
     catégories, un commercial devait deviner l'orthographe exacte (« Mohammédia »
     accentué, « Âïn-Harrouda ») pour que le ILIKE trouve quelque chose. La liste
     ne propose que des valeurs qui rendront un résultat non vide.
+
+    Chaque liste tient compte des autres filtres actifs, mais **pas du sien**.
+    Sans les autres filtres, les nombres mentaient dès qu'un second filtre était
+    posé : avec « Siège social » actif, la liste annonçait encore « Casablanca
+    (1080) » pour 86 lignes réelles, et proposait six villes qui ne rendaient
+    plus rien. En incluant son propre filtre, choisir une ville réduirait la
+    liste des villes à cette seule ville et on ne pourrait plus en changer.
     """
-    clauses, _ = _prospects_filter_clauses()
-    where = " AND ".join(clauses)
+    city_clauses, city_params = _prospects_filter_clauses(min_kwc, None, category, search)
+    cat_clauses, cat_params = _prospects_filter_clauses(min_kwc, city, None, search)
 
     pool = _get_db_pool()
     conn = pool.getconn()
@@ -1899,9 +1906,11 @@ def _prospect_filter_values():
                 f"""
                 SELECT trim(city), count(*)
                 FROM companies
-                WHERE {where} AND city IS NOT NULL AND trim(city) <> ''
+                WHERE {" AND ".join(city_clauses)}
+                  AND city IS NOT NULL AND trim(city) <> ''
                 GROUP BY 1 ORDER BY 2 DESC, 1
-                """
+                """,
+                city_params,
             )
             cities = [{"value": r[0], "count": r[1]} for r in cur.fetchall()]
 
@@ -1909,9 +1918,11 @@ def _prospect_filter_values():
                 f"""
                 SELECT trim(category), count(*)
                 FROM companies
-                WHERE {where} AND category IS NOT NULL AND trim(category) <> ''
+                WHERE {" AND ".join(cat_clauses)}
+                  AND category IS NOT NULL AND trim(category) <> ''
                 GROUP BY 1 ORDER BY 2 DESC, 1
-                """
+                """,
+                cat_params,
             )
             categories = [{"value": r[0], "count": r[1]} for r in cur.fetchall()]
     finally:
@@ -1922,8 +1933,20 @@ def _prospect_filter_values():
 
 @app.route("/api/prospect_filters")
 def api_prospect_filters():
-    """Valeurs proposées par les listes déroulantes du tableau de bord."""
-    return jsonify(_prospect_filter_values())
+    """Valeurs proposées par les listes déroulantes du tableau de bord.
+
+    Prend les mêmes paramètres que /api/prospects : les nombres affichés en face
+    de chaque choix doivent correspondre à la liste que ce choix produira,
+    filtres en cours compris.
+    """
+    return jsonify(
+        _prospect_filter_values(
+            min_kwc=request.args.get("min_kwc", type=float),
+            city=request.args.get("city"),
+            category=request.args.get("category"),
+            search=request.args.get("search"),
+        )
+    )
 
 
 @app.route("/api/prospects")
