@@ -480,10 +480,20 @@ def _store_ia_segment(polygon, area_m2, source="ia-segmentation", created_by=Non
                 cur, created_by, "segment_created", "ia_segments", new_id,
                 {"source": source, "area_m2": area_m2},
             )
-            _apply_solar_for_polygon(cur, polygon, area_m2, source, f"ia:{new_id}")
-            return {"id": new_id, "polygon": polygon, "area_m2": area_m2, "source": source}
+            # On relève seulement qui est concerné ; le rattachement se fait
+            # après le commit, comme à la suppression.
+            affected = _companies_inside_polygon(cur, polygon, include_nearby=True)
+            stored = {"id": new_id, "polygon": polygon, "area_m2": area_m2, "source": source}
     finally:
         pool.putconn(conn)
+
+    # Hors transaction : le segment est committé, donc _find_roof_at_point le
+    # voit. Rejouer l'arbitrage complet plutôt qu'affecter d'office ce nouveau
+    # polygone — sans quoi une détection IA écraserait un tracé manuel déjà
+    # posé au même endroit, à rebours de l'ordre de priorité.
+    if affected:
+        _recompute_solar_for_companies(affected)
+    return stored
 
 
 def _query_ia_segments(bbox):
@@ -607,36 +617,6 @@ def _companies_inside_polygon(cur, polygon, only_computed=False, include_nearby=
         for company_id, lon, lat in rows
         if _distance_to_polygon_m(lon, lat, polygon) <= ROOF_NEARBY_RADIUS_M
     ]
-
-
-def _apply_solar_for_polygon(cur, polygon, area_m2, source, roof_key=None):
-    """Renseigne le potentiel solaire des entreprises situées sous ce toit
-    fraîchement enregistré, pour qu'elles apparaissent aussitôt au tableau de
-    bord. Ne touche pas celles déjà rattachées à un bâtiment OSM (prioritaire).
-
-    Utilise le même rayon de rattrapage que _find_roof_at_point : le point GPS
-    d'une entreprise tombe souvent juste à côté du toit (parfois à moins d'un
-    mètre), et un test strict laisserait alors le marqueur rouge alors que la
-    recherche en direct, elle, trouve bien le toit."""
-    affected = _companies_inside_polygon(cur, polygon, include_nearby=True)
-    if not affected:
-        return 0
-
-    n_panels, kwc = _estimate_solar(area_m2)
-    cur.execute(
-        """
-        UPDATE companies SET
-            roof_area_m2 = %s,
-            roof_source = %s,
-            roof_key = %s,
-            solar_panels = %s,
-            solar_kwc = %s,
-            solar_computed_at = now()
-        WHERE id = ANY(%s) AND (roof_source IS DISTINCT FROM 'osm')
-        """,
-        (area_m2, source, roof_key, n_panels, kwc, affected),
-    )
-    return cur.rowcount
 
 
 def _query_companies(bbox):
@@ -776,9 +756,18 @@ def _distance_to_polygon_m(lon, lat, polygon):
 
 
 def _find_roof_at_point(lon, lat):
-    """Cherche un toit (OSM, ia_segments, ou ms_buildings) contenant ce point.
-    OSM est prioritaire (données cartographiées réelles) sur les sources
-    détectées par IA (ms-buildings, ia-segmentation), moins fiables.
+    """Cherche un toit (ia_segments, OSM ou ms_buildings) contenant ce point.
+
+    Ordre de priorité, du plus fiable au moins fiable :
+
+    1. `manual-trace` — quelqu'un a dessiné ce contour à la main, en regardant
+       l'image satellite. C'est le seul cas où un humain a tranché, et il l'a
+       souvent fait précisément parce que les autres sources étaient absentes
+       ou fausses : le laisser derrière OSM annulerait cette correction.
+    2. `ia-segmentation` — segmentation déclenchée au clic sur ce bâtiment
+       précis, donc vérifiée de visu au moment de la détection.
+    3. `osm` — contour cartographié, fiable mais parfois ancien ou absent.
+    4. `ms-buildings` — détection automatique en masse, jamais relue.
 
     Si aucun polygone ne contient exactement le point (le GPS d'une entreprise
     pointe souvent l'entrée ou le trottoir, pas le toit), reprend le bâtiment
@@ -805,16 +794,23 @@ def _find_roof_at_point(lon, lat):
         }
         for f in _cached_osm_buildings_at(bbox)
     ]
-    ia_candidates = [
+    # Les deux sortent de la même table, mais pas de la même main : un tracé
+    # manuel est un arbitrage humain, une segmentation reste une detection.
+    segments = [
         {"area_m2": c["area_m2"], "source": c["source"], "polygon": c["polygon"], "roof_key": f"ia:{c['id']}"}
         for c in _query_ia_segments(bbox)
     ]
+    manual_candidates = [c for c in segments if c["source"] == "manual-trace"]
+    ia_candidates = [c for c in segments if c["source"] != "manual-trace"]
+
     ms_candidates = [
         {"area_m2": c["area_m2"], "source": "ms-buildings", "polygon": c["polygon"], "roof_key": f"ms:{c['id']}"}
         for c in _query_ms_buildings(bbox)
     ]
 
-    for candidates in (osm_candidates, ia_candidates, ms_candidates):
+    by_priority = (manual_candidates, ia_candidates, osm_candidates, ms_candidates)
+
+    for candidates in by_priority:
         for c in candidates:
             if not _point_in_polygon(lon, lat, c["polygon"]):
                 continue
@@ -827,7 +823,7 @@ def _find_roof_at_point(lon, lat):
     # (immeubles redessinés, doublons de saisie) doivent toujours donner le même
     # toit, sinon la surface d'un prospect change d'un recalcul à l'autre.
     best, best_dist = None, ROOF_NEARBY_RADIUS_M
-    for candidates in (osm_candidates, ia_candidates, ms_candidates):
+    for candidates in by_priority:
         for c in sorted(candidates, key=lambda x: x["roof_key"]):
             d = _distance_to_polygon_m(lon, lat, c["polygon"])
             if d < best_dist:
