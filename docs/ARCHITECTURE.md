@@ -5,8 +5,8 @@ Prospection photovoltaïque sur toitures industrielles marocaines.
 Ce document décrit **l'état actuel** du projet, **la structure cible**, et **l'ordre**
 pour y parvenir. Il est tenu à jour au fil des refontes.
 
-Dernière mise à jour : 1er septembre 2026, après l'ingestion d'OpenStreetMap
-et le retrait d'Overture.
+Dernière mise à jour : 9 septembre 2026, après le passage de la détection IA
+devant OSM dans la priorité des sources.
 
 ---
 
@@ -253,14 +253,20 @@ FROM buildings
 WHERE ST_Contains(geom, ST_SetSRID(ST_Point(%s, %s), 4326))
 ORDER BY CASE source
     WHEN 'manual' THEN 1
-    WHEN 'osm'    THEN 2
-    WHEN 'ia'     THEN 3
+    WHEN 'ia'     THEN 2
+    WHEN 'osm'    THEN 3
     WHEN 'ms'     THEN 4 END
 LIMIT 1;
 ```
 
 La priorité entre sources cesse d'être une boucle Python pour devenir une clause
 `ORDER BY` lisible en une ligne.
+
+L'ordre a changé le 8 septembre 2026 : `ia` est passé devant `osm`. OSM regroupe
+souvent plusieurs petits bâtiments en un seul polygone, et retourne alors la
+surface de l'îlot plutôt que celle du bâtiment visé ; une segmentation déclenchée
+au clic vise, elle, un bâtiment précis. Voir `_find_roof_at_point` dans `app.py`
+et `tests/test_roof_priority.py`, qui verrouille cet ordre.
 
 ---
 

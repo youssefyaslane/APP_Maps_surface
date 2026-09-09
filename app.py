@@ -658,17 +658,6 @@ def _query_companies(bbox):
     ]
 
 
-def _count_companies():
-    pool = _get_db_pool()
-    conn = pool.getconn()
-    try:
-        with conn, conn.cursor() as cur:
-            cur.execute("SELECT count(*) FROM companies")
-            return cur.fetchone()[0]
-    finally:
-        pool.putconn(conn)
-
-
 MS_BUILDINGS_QUERY_LIMIT = 3000
 
 

@@ -39,7 +39,7 @@ body {
 
 a { color: inherit; }
 
-h1, h2, h3, .fig b, .step-n, .brand-mark {
+h1, h2, h3, .fig b, .brand-mark {
   font-family: "Bricolage Grotesque", "Instrument Sans", system-ui, sans-serif;
 }
 
@@ -393,44 +393,6 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
 }
 
 /* étapes */
-
-.steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
-  gap: 20px;
-}
-
-.steps li {
-  position: relative;
-  background: var(--surface);
-  border: 1px solid var(--trait);
-  border-radius: 12px;
-  padding: 24px 22px;
-  overflow: hidden;
-}
-.steps li::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: var(--degrade);
-  opacity: 0.85;
-}
-
-.step-n {
-  display: block;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: var(--turquoise);
-  margin-bottom: 12px;
-}
-
-.steps h3 { margin: 0 0 8px; font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
-.steps p { margin: 0; font-size: 14.5px; color: var(--ink-doux); }
 
 /* panneaux */
 

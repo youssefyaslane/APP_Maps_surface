@@ -118,20 +118,6 @@ html, body {
   color: #1f5130;
 }
 
-.btn-map {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
-  text-decoration: none;
-  padding: 9px 16px;
-  border-radius: 8px;
-  font-size: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.35);
-}
-
-.btn-map:hover {
-  background: rgba(255, 255, 255, 0.25);
-}
-
 .stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
