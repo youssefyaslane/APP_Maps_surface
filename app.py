@@ -23,6 +23,11 @@ from domain.solar import estimate_solar as _estimate_solar
 
 app = Flask(__name__)
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+# Le cookie de session n'accompagne pas une requête POST partie d'un autre site :
+# sans ce réglage, une page tierce pourrait faire soumettre au navigateur d'un
+# administrateur connecté le formulaire de suppression d'un compte. Chrome
+# applique déjà Lax par défaut, pas tous les navigateurs — ici c'est explicite.
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 CACHE_DIR = os.environ.get("CACHE_DIR", os.path.dirname(__file__))
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -253,6 +258,65 @@ def _find_user_by_username(username):
     }
 
 
+def _find_user_by_id(user_id):
+    """Compte encore présent en base, ou None s'il a été supprimé depuis."""
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, username, display_name, is_admin FROM users WHERE id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+    finally:
+        pool.putconn(conn)
+    if row is None:
+        return None
+    return {"id": row[0], "username": row[1], "display_name": row[2], "is_admin": row[3]}
+
+
+def _delete_user(user_id, deleted_by):
+    """Supprime un compte ; renvoie None si c'est fait, sinon le motif du refus.
+
+    Ce qu'il laisse derrière lui survit : les clés étrangères de ia_segments et
+    d'audit_log sont en ON DELETE SET NULL, seul l'auteur s'efface. Ses toits
+    tracés restent donc sur la carte et au tableau de bord.
+    """
+    if user_id == deleted_by:
+        return "Vous ne pouvez pas supprimer votre propre compte."
+
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            # Verrouiller les administrateurs avant de les compter : deux admins
+            # qui se suppriment l'un l'autre au même instant verraient sinon
+            # chacun « il en reste un autre », et l'outil se retrouverait sans
+            # personne pour créer de comptes.
+            cur.execute("SELECT id FROM users WHERE is_admin FOR UPDATE")
+            admins = {r[0] for r in cur.fetchall()}
+
+            cur.execute("SELECT username, is_admin FROM users WHERE id = %s FOR UPDATE", (user_id,))
+            row = cur.fetchone()
+            if row is None:
+                return "Ce compte n'existe plus."
+            username, is_admin = row
+            if is_admin and not (admins - {user_id}):
+                return "Impossible de supprimer le dernier administrateur."
+
+            cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+            # L'identifiant est recopié dans le détail : la ligne effacée,
+            # entity_id ne désigne plus rien de lisible.
+            _log_audit(
+                cur, deleted_by, "user_deleted", "users", user_id,
+                {"username": username, "is_admin": is_admin},
+            )
+    finally:
+        pool.putconn(conn)
+    return None
+
+
 def _list_users():
     pool = _get_db_pool()
     conn = pool.getconn()
@@ -329,8 +393,20 @@ PUBLIC_ENDPOINTS = {"login", "static"}
 def _require_login():
     if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
         return
-    if session.get("user_id") is not None:
-        return
+    user_id = session.get("user_id")
+    if user_id is not None:
+        # Le cookie est signé et valable 30 jours, mais il ne dit pas si le
+        # compte existe encore : sans cette relecture, un compte supprimé depuis
+        # la page Comptes garderait l'accès — droits d'administration compris —
+        # jusqu'à l'expiration de son cookie.
+        user = _find_user_by_id(user_id)
+        if user is not None:
+            # Même relecture pour les droits : un changement fait en base
+            # s'applique tout de suite, pas à la prochaine connexion.
+            if session.get("is_admin") != user["is_admin"]:
+                session["is_admin"] = user["is_admin"]
+            return
+        session.clear()
     if request.path.startswith("/api/"):
         return jsonify({"error": "Authentification requise"}), 401
     return redirect(url_for("login", next=request.path))
@@ -1247,7 +1323,20 @@ def admin_users():
             else:
                 return redirect(url_for("admin_users"))
 
-    return render_template("admin_users.html", users=_list_users(), error=error)
+    return render_template(
+        "admin_users.html", users=_list_users(), error=error, me=session.get("user_id")
+    )
+
+
+@app.route("/admin/users/<int:user_id>/delete", methods=["POST"])
+@_admin_required
+def admin_delete_user(user_id):
+    error = _delete_user(user_id, deleted_by=session.get("user_id"))
+    if error:
+        return render_template(
+            "admin_users.html", users=_list_users(), error=error, me=session.get("user_id")
+        ), 409
+    return redirect(url_for("admin_users"))
 
 
 @app.route("/api/cities")

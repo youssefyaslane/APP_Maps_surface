@@ -74,6 +74,7 @@
             <th>Nom affiché</th>
             <th>Rôle</th>
             <th>Créé le</th>
+            <th aria-label="Actions"></th>
           </tr>
         </thead>
         <tbody>
@@ -83,6 +84,18 @@
             <td>{{ u.display_name or "—" }}</td>
             <td>{% if u.is_admin %}<span class="admin-badge">Administrateur</span>{% else %}Commercial{% endif %}</td>
             <td>{{ u.created_at.strftime("%d/%m/%Y") }}</td>
+            <td class="admin-actions">
+              {# Pas de bouton sur sa propre ligne : le serveur refuse de toute
+                 façon, autant ne pas proposer un geste voué à l'échec. #}
+              {% if u.id != me %}
+                <form method="post" action="{{ url_for('admin_delete_user', user_id=u.id) }}"
+                      data-confirm="Supprimer le compte « {{ u.username }} » ? Ses toits tracés sont conservés, sans auteur.">
+                  <button type="submit" class="admin-delete">Supprimer</button>
+                </form>
+              {% else %}
+                <span class="admin-self">vous</span>
+              {% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
@@ -90,5 +103,16 @@
       </div>
     </section>
   </main>
+
+  <script>
+    // Confirmation avant suppression. Le message vient d'un attribut data- :
+    // Jinja l'échappe comme tout texte HTML, ce qu'un nom de compte glissé
+    // directement dans du JavaScript en ligne ne garantirait pas.
+    document.querySelectorAll("form[data-confirm]").forEach((form) => {
+      form.addEventListener("submit", (e) => {
+        if (!confirm(form.dataset.confirm)) e.preventDefault();
+      });
+    });
+  </script>
 </body>
 </html>
