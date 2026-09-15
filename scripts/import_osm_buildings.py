@@ -28,6 +28,7 @@ import sys
 import psycopg2.extras
 
 import db
+import schema
 
 BATCH_SIZE = 2000
 
@@ -94,26 +95,9 @@ def _largest_polygon(geometry):
 def main(path):
     conn = db.connect()
     with conn, conn.cursor() as cur:
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS osm_buildings (
-                osm_id BIGINT PRIMARY KEY,
-                polygon JSONB NOT NULL,
-                holes JSONB,
-                area_m2 DOUBLE PRECISION NOT NULL,
-                centroid_lon DOUBLE PRECISION NOT NULL,
-                centroid_lat DOUBLE PRECISION NOT NULL,
-                name TEXT,
-                building_type TEXT,
-                levels TEXT,
-                imported_at TIMESTAMPTZ NOT NULL DEFAULT now()
-            )
-            """
-        )
-        cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_osm_buildings_centroid "
-            "ON osm_buildings (centroid_lat, centroid_lon)"
-        )
+        # Définition partagée avec le démarrage de l'application et la
+        # migration entre bases (schema.py).
+        schema.create_osm_buildings(cur)
 
     rows = []
     imported = skipped = 0

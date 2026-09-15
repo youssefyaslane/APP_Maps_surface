@@ -104,3 +104,46 @@ button:hover {
   color: #90a4ae;
   text-align: center;
 }
+
+/* ---------- page de secours (base injoignable) ----------
+   Même carte que la connexion : c'est la seule page que l'application
+   affiche tant que la base active ne répond pas. */
+
+.recovery-card { width: 380px; }
+
+/* Carte plus haute que celle de la connexion : la page grandit avec elle
+   (min-height plutôt qu'une hauteur fixe), sinon un petit écran en coupait
+   le haut, sans possibilité de défiler. */
+body.recovery-page {
+  box-sizing: border-box;
+  height: auto;
+  min-height: 100%;
+  padding: 24px 0;
+}
+
+.recovery-facts { margin: 0 0 18px; display: flex; flex-direction: column; gap: 8px; }
+.recovery-facts div { display: flex; gap: 10px; font-size: 13px; }
+.recovery-facts dt { flex: none; width: 80px; color: #78909c; }
+.recovery-facts dd { margin: 0; font-weight: 600; color: #263238; overflow-wrap: anywhere; }
+
+button.recovery-secondary {
+  background: #fff;
+  color: #2e7d32;
+  border: 1px solid #2e7d32;
+}
+button.recovery-secondary:hover { background: #e8f5e9; }
+
+.recovery-sep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 0 14px;
+  color: #90a4ae;
+  font-size: 12px;
+}
+.recovery-sep::before,
+.recovery-sep::after { content: ""; flex: 1; height: 1px; background: #eceff1; }
+
+.recovery-explain { margin: 0; font-size: 13px; line-height: 1.5; color: #455a64; }
+.recovery-alone { margin-top: 16px; }
+.recovery-note { margin: 0; font-size: 12px; line-height: 1.45; color: #90a4ae; }

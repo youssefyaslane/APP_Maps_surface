@@ -15,9 +15,13 @@ import psycopg2
 import psycopg2.pool
 import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
+from werkzeug.exceptions import InternalServerError
 from werkzeug.security import check_password_hash
 
 import db
+import db_configs
+import db_migration
+import schema as table_schema
 import segmentation
 from domain.solar import config as solar_config
 from domain.solar import estimate_solar as _estimate_solar
@@ -74,6 +78,13 @@ app.secret_key = _get_secret_key()
 # est plus proche que ça sont considérées comme le même toit.
 IA_SEGMENT_DEDUP_DEG = 0.00005
 _db_pool = None
+# Renseigné quand la base active est injoignable : l'application passe alors
+# en mode secours (voir « Mode secours » plus bas) au lieu de s'arrêter.
+_db_down = None
+
+
+class DatabaseUnavailable(RuntimeError):
+    """La base active ne répond pas."""
 
 
 def _get_db_pool():
@@ -81,161 +92,46 @@ def _get_db_pool():
     if _db_pool is not None:
         return _db_pool
     last_error = None
-    for _ in range(15):
+    # Cinq tentatives, et non plus quinze : ces reprises couvraient le démarrage
+    # du conteneur de base local, retiré depuis la migration vers le serveur
+    # partagé. Chaque tentative de plus ne fait que retarder le mode secours.
+    for _ in range(5):
         try:
+            # Relu à chaque création du pool : c'est ce qui fait suivre à
+            # l'application la base activée depuis la page d'administration.
+            dsn, kwargs = db.connect_params()
+            # Sans délai, une adresse injoignable bloque la connexion pendant
+            # des minutes au lieu d'échouer.
             _db_pool = psycopg2.pool.ThreadedConnectionPool(
-                1, 10, db.DATABASE_URL, **db.connect_kwargs()
+                1, 10, dsn, connect_timeout=5, **kwargs
             )
             return _db_pool
         except psycopg2.OperationalError as exc:
             last_error = exc
             time.sleep(1)
-    raise RuntimeError(f"Impossible de se connecter à PostgreSQL: {last_error}")
+    raise DatabaseUnavailable(db_migration.explain(last_error))
+
+
+def _reset_db_pool():
+    """Abandonne le pool courant : la requête suivante se connecte à la base
+    désormais active. Une requête en cours sur l'ancienne base peut échouer
+    une fois — prix accepté pour une bascule rare, faite par un administrateur."""
+    global _db_pool
+    old, _db_pool = _db_pool, None
+    if old is not None:
+        try:
+            old.closeall()
+        except psycopg2.Error:
+            pass
 
 
 def _init_db():
+    """Crée les tables manquantes dans la base active (définitions : schema.py)."""
     pool = _get_db_pool()
     conn = pool.getconn()
     try:
         with conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS ia_segments (
-                    id SERIAL PRIMARY KEY,
-                    polygon JSONB NOT NULL,
-                    area_m2 DOUBLE PRECISION NOT NULL,
-                    centroid_lon DOUBLE PRECISION NOT NULL,
-                    centroid_lat DOUBLE PRECISION NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                )
-                """
-            )
-            cur.execute(
-                "ALTER TABLE ia_segments ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'ia-segmentation'"
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_ia_segments_centroid "
-                "ON ia_segments (centroid_lat, centroid_lon)"
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS companies (
-                    id SERIAL PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    category TEXT,
-                    address TEXT,
-                    city TEXT,
-                    phone TEXT,
-                    email TEXT,
-                    website TEXT,
-                    rating DOUBLE PRECISION,
-                    lon DOUBLE PRECISION NOT NULL,
-                    lat DOUBLE PRECISION NOT NULL,
-                    place_id TEXT UNIQUE,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                )
-                """
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_companies_coords ON companies (lat, lon)"
-            )
-            # Potentiel solaire calculé par compute_solar_potential.py (toit
-            # trouvé sous l'entreprise + estimation panneaux/puissance).
-            cur.execute(
-                """
-                ALTER TABLE companies
-                    ADD COLUMN IF NOT EXISTS roof_area_m2 DOUBLE PRECISION,
-                    ADD COLUMN IF NOT EXISTS roof_source TEXT,
-                    ADD COLUMN IF NOT EXISTS solar_panels INTEGER,
-                    ADD COLUMN IF NOT EXISTS solar_kwc DOUBLE PRECISION,
-                    ADD COLUMN IF NOT EXISTS solar_computed_at TIMESTAMPTZ,
-                    ADD COLUMN IF NOT EXISTS roof_key TEXT
-                """
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_companies_solar_kwc "
-                "ON companies (solar_kwc DESC NULLS LAST)"
-            )
-            # Sert au regroupement des entreprises partageant un même toit.
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_companies_roof_key ON companies (roof_key)"
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS ms_buildings (
-                    id SERIAL PRIMARY KEY,
-                    polygon JSONB NOT NULL,
-                    area_m2 DOUBLE PRECISION NOT NULL,
-                    centroid_lon DOUBLE PRECISION NOT NULL,
-                    centroid_lat DOUBLE PRECISION NOT NULL
-                )
-                """
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_ms_buildings_centroid "
-                "ON ms_buildings (centroid_lat, centroid_lon)"
-            )
-            # Clé naturelle : la source Microsoft ne fournit aucun identifiant,
-            # seule la géométrie distingue deux bâtiments. Colonne générée, donc
-            # toujours cohérente avec le polygone, et unique pour rendre
-            # l'import rejouable sans dupliquer les 193 000 empreintes.
-            cur.execute(
-                "ALTER TABLE ms_buildings ADD COLUMN IF NOT EXISTS geom_hash TEXT "
-                "GENERATED ALWAYS AS (md5(polygon::text)) STORED"
-            )
-            cur.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_ms_buildings_geom_hash "
-                "ON ms_buildings (geom_hash)"
-            )
-            # Comptes nominatifs des commerciaux/opérateurs. Créés via
-            # `python -m scripts.create_user`, pas d'inscription en ligne : c'est
-            # un outil interne, pas un service public.
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS users (
-                    id SERIAL PRIMARY KEY,
-                    username TEXT UNIQUE NOT NULL,
-                    password_hash TEXT NOT NULL,
-                    display_name TEXT,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                )
-                """
-            )
-            # Seul un compte admin peut créer d'autres comptes (page /admin/users).
-            # Le tout premier compte se crée en ligne de commande
-            # (`scripts.create_user --admin`) : une interface qui exige d'être
-            # admin pour créer un compte ne peut pas créer le premier admin.
-            cur.execute(
-                "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false"
-            )
-            # Qui a détecté/tracé ce toit. Nullable : les segments créés avant
-            # l'ajout des comptes n'ont pas d'auteur connu, et ça ne doit pas les
-            # invalider. ON DELETE SET NULL plutôt que RESTRICT : supprimer un
-            # compte ne doit pas bloquer sur les toits qu'il a laissés derrière lui.
-            cur.execute(
-                "ALTER TABLE ia_segments ADD COLUMN IF NOT EXISTS created_by INTEGER "
-                "REFERENCES users(id) ON DELETE SET NULL"
-            )
-            # Trace qui a créé ou supprimé un toit. Une ligne d'ia_segments
-            # disparaît à la suppression et emporterait son auteur avec elle ;
-            # cette table existe précisément pour que la suppression, elle,
-            # reste traçable après coup.
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS audit_log (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-                    action TEXT NOT NULL,
-                    entity TEXT NOT NULL,
-                    entity_id INTEGER,
-                    details JSONB,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                )
-                """
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log (entity, entity_id)"
-            )
+            table_schema.create_all(cur)
     finally:
         pool.putconn(conn)
 
@@ -391,8 +287,20 @@ def _log_audit(cur, user_id, action, entity, entity_id, details=None):
 PUBLIC_ENDPOINTS = {"login", "static"}
 
 
+RECOVERY_ENDPOINTS = {"db_recovery", "db_recovery_retry", "db_recovery_use_env"}
+
+
 @app.before_request
 def _require_login():
+    # Mode secours : tant que la base active est injoignable, seules la page de
+    # secours et les fichiers statiques répondent. Rien n'est lu ni écrit
+    # ailleurs en attendant qu'un administrateur choisisse.
+    if _db_down is not None:
+        if request.endpoint in RECOVERY_ENDPOINTS or request.endpoint == "static":
+            return
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "Base de données injoignable"}), 503
+        return redirect(url_for("db_recovery"))
     if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
         return
     user_id = session.get("user_id")
@@ -1341,6 +1249,424 @@ def admin_delete_user(user_id):
     return redirect(url_for("admin_users"))
 
 
+# --- Administration de la base -------------------------------------------
+#
+# Page réservée aux administrateurs : enregistrer d'autres bases PostgreSQL,
+# les tester, y recopier les données, puis y faire passer l'application.
+# Les configurations vivent hors de la base (db_configs.py) ; le diagnostic
+# et la copie, dans db_migration.py.
+
+DB_ADMIN_MESSAGES = {
+    "added": "Configuration enregistrée. Testez-la, puis migrez les données avant de l'activer.",
+    "updated": "Configuration modifiée.",
+    "deleted": "Configuration supprimée. La base elle-même n'a pas été touchée.",
+    "activated": "Base activée : l'application travaille désormais sur cette base.",
+}
+
+
+def _current_admin():
+    return {"id": session.get("user_id"), "username": session.get("username")}
+
+
+def _active_config_id():
+    return db_configs.active_id() or db_configs.ENV_ID
+
+
+def _db_target(config_id):
+    """Cible déchiffrée pour un identifiant de la page, ou la base du .env."""
+    if config_id == db_configs.ENV_ID:
+        return db.ENV
+    return db_configs.target(config_id)
+
+
+def _db_label(config_id):
+    if config_id == db_configs.ENV_ID:
+        return db.env_description()["label"]
+    configs, _ = db_configs.list_public()
+    return next((c["label"] for c in configs if c["id"] == config_id), config_id)
+
+
+def _log_database_event(user_id, action, details):
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            _log_audit(cur, user_id, action, "database", None, details)
+    finally:
+        pool.putconn(conn)
+
+
+def _activate_database(config_id, admin, force=False):
+    """Fait passer l'application sur une autre base.
+
+    Renvoie None, ou (motif du refus, forçable). Les refus non forçables évitent
+    une situation dont on ne sort qu'en ligne de commande : une base sans les
+    tables, ou une base où votre compte n'existe pas — la relecture du compte à
+    chaque requête vous déconnecterait sur-le-champ.
+
+    Le refus forçable protège le travail récent : activer une base en retard
+    sur la base active, c'est laisser ce travail derrière soi — et une
+    synchronisation dans l'autre sens l'effacerait ensuite. C'est ici, et non
+    au moment de synchroniser, que ce danger se voit de façon sûre : les
+    scripts d'import écrivent sans rien laisser au journal.
+    """
+    if db_migration.job_status().get("state") == "running":
+        return "Une migration est en cours : attendez qu'elle soit terminée.", False
+    previous = _active_config_id()
+    if config_id == previous:
+        return "C'est déjà la base active.", False
+    try:
+        target = _db_target(config_id)
+    except db_configs.ConfigError as exc:
+        return str(exc), False
+
+    report = db_migration.inspect(target, admin=admin)
+    if not report["ok"]:
+        return f"Connexion impossible : {report['error']}", False
+    if not report["schema_exists"]:
+        return f"Le schéma « {report['schema']} » n'existe pas sur ce serveur.", False
+    missing = [t for t in table_schema.REQUIRED_TABLES if report["tables"].get(t) is None]
+    if missing:
+        return (
+            "Tables absentes sur cette base (" + ", ".join(missing) + ") : "
+            "migrez d'abord les données.", False,
+        )
+    if not report["admin_present"]:
+        return (
+            "Votre compte administrateur n'existe pas sur cette base : vous seriez "
+            "déconnecté aussitôt, sans pouvoir revenir sur cette page. Migrez d'abord les données.",
+            False,
+        )
+
+    if not force:
+        try:
+            comparison = db_migration.sync(target)
+        except (db_migration.MigrationError, db_configs.ConfigError) as exc:
+            return str(exc), False
+        except psycopg2.Error as exc:
+            return f"Comparaison impossible : {db_migration.explain(exc)}", False
+        if not db_migration.is_identical(comparison["diff"]):
+            totals = {
+                k: sum(d[k] for d in comparison["diff"].values())
+                for k in ("added", "changed", "removed")
+            }
+            return (
+                f"« {_db_label(config_id)} » n'a pas les dernières données de la base active "
+                f"({totals['added']} ligne(s) à ajouter, {totals['changed']} à modifier, "
+                f"{totals['removed']} à retirer). Migrez d'abord les données vers elle, puis "
+                f"activez-la : sinon, le travail fait depuis la dernière migration resterait "
+                f"seulement sur « {_db_label(previous)} ».",
+                True,
+            )
+
+    db_configs.set_active(None if config_id == db_configs.ENV_ID else config_id)
+    _reset_db_pool()
+    try:
+        # Première écriture sur la nouvelle base. Si elle échoue, retour
+        # immédiat à la précédente plutôt qu'une application privée de base.
+        _log_database_event(
+            admin["id"], "db_activated",
+            {"de": _db_label(previous), "vers": _db_label(config_id)},
+        )
+    except Exception as exc:
+        db_configs.set_active(None if previous == db_configs.ENV_ID else previous)
+        _reset_db_pool()
+        return f"La base n'a pas répondu après la bascule ({exc}) : retour à la précédente.", False
+    return None
+
+
+def _render_database_admin(error=None, status=200, force_url=None):
+    try:
+        configs, active_id = db_configs.list_public()
+    except db_configs.ConfigError as exc:
+        configs, active_id, error = [], None, error or str(exc)
+    active_id = active_id or db_configs.ENV_ID
+
+    rows = [db.env_description()] + configs
+    for row in rows:
+        row["is_env"] = row["id"] == db_configs.ENV_ID
+        row["is_active"] = row["id"] == active_id
+        created = row.get("created_at") or ""
+        row["created_label"] = (
+            f"{created[8:10]}/{created[5:7]}/{created[:4]}" if len(created) >= 10 else "—"
+        )
+    active = next((r for r in rows if r["is_active"]), rows[0])
+
+    report = db_migration.inspect(None)
+    tables = report.get("tables") or {}
+
+    def nombre(value):
+        return f"{value:,}".replace(",", " ") if isinstance(value, int) else "—"
+
+    content = (
+        f"{nombre(tables.get('companies'))} entreprises · "
+        f"{nombre(tables.get('ia_segments'))} toits tracés · "
+        f"{nombre(tables.get('users'))} comptes"
+    )
+    return render_template(
+        "admin_database.html",
+        rows=rows,
+        active=active,
+        report=report,
+        content=content,
+        key_ok=db_configs.key_configured(),
+        job=db_migration.job_status(),
+        message=DB_ADMIN_MESSAGES.get(request.args.get("ok")),
+        error=error,
+        force_url=force_url,
+    ), status
+
+
+@app.route("/admin/database")
+@_admin_required
+def admin_database():
+    return _render_database_admin()
+
+
+@app.route("/admin/database/configs", methods=["POST"])
+@_admin_required
+def admin_database_add():
+    try:
+        config_id = db_configs.add(request.form)
+    except db_configs.ConfigError as exc:
+        return _render_database_admin(error=str(exc), status=400)
+    _log_database_event(session.get("user_id"), "db_config_added", {"label": _db_label(config_id)})
+    return redirect(url_for("admin_database", ok="added"))
+
+
+@app.route("/admin/database/configs/<config_id>/edit", methods=["POST"])
+@_admin_required
+def admin_database_edit(config_id):
+    try:
+        if config_id == db_configs.ENV_ID:
+            # Seul le nom se règle ici : la connexion vient du fichier .env.
+            db_configs.set_env_label(request.form.get("label"))
+        else:
+            db_configs.update(config_id, request.form)
+    except db_configs.ConfigError as exc:
+        return _render_database_admin(error=str(exc), status=409)
+    return redirect(url_for("admin_database", ok="updated"))
+
+
+@app.route("/admin/database/configs/<config_id>/delete", methods=["POST"])
+@_admin_required
+def admin_database_delete(config_id):
+    label = _db_label(config_id)
+    try:
+        db_configs.delete(config_id)
+    except db_configs.ConfigError as exc:
+        return _render_database_admin(error=str(exc), status=409)
+    _log_database_event(session.get("user_id"), "db_config_deleted", {"label": label})
+    return redirect(url_for("admin_database", ok="deleted"))
+
+
+@app.route("/admin/database/configs/<config_id>/test", methods=["POST"])
+@_admin_required
+def admin_database_test(config_id):
+    try:
+        target = _db_target(config_id)
+    except db_configs.ConfigError as exc:
+        return jsonify({"ok": False, "error": str(exc)})
+    return jsonify(db_migration.inspect(target, admin=_current_admin()))
+
+
+@app.route("/admin/database/configs/<config_id>/migrate", methods=["POST"])
+@_admin_required
+def admin_database_migrate(config_id):
+    if config_id == _active_config_id():
+        return jsonify({"error": "C'est déjà la base active : il n'y a rien à y recopier."}), 409
+    try:
+        target = _db_target(config_id)
+    except db_configs.ConfigError as exc:
+        return jsonify({"error": str(exc)}), 409
+    label = _db_label(config_id)
+    apply = request.form.get("mode") == "apply"
+    admin_id = session.get("user_id")
+
+    def journaliser():
+        # Dans la base active, avant l'instantané : la cible en reçoit la copie.
+        # Aucune écriture ne va jamais dans une base inactive, sinon ses
+        # identifiants divergeraient de ceux de la base active.
+        _log_database_event(admin_id, "db_synced", {"vers": label})
+
+    try:
+        db_migration.start(target, label, apply=apply, before_apply=journaliser if apply else None)
+    except db_migration.MigrationError as exc:
+        return jsonify({"error": str(exc)}), 409
+    return jsonify({"started": True, "mode": "apply" if apply else "preview"})
+
+
+@app.route("/admin/database/migration")
+@_admin_required
+def admin_database_migration_status():
+    return jsonify(db_migration.job_status())
+
+
+@app.route("/admin/database/configs/<config_id>/activate", methods=["POST"])
+@_admin_required
+def admin_database_activate(config_id):
+    refusal = _activate_database(
+        config_id, _current_admin(), force=request.form.get("force") == "1"
+    )
+    if refusal:
+        error, can_force = refusal
+        force_url = url_for("admin_database_activate", config_id=config_id) if can_force else None
+        return _render_database_admin(error=error, status=409, force_url=force_url)
+    return redirect(url_for("admin_database", ok="activated"))
+
+
+# --- Mode secours ----------------------------------------------------------
+#
+# Si la base active ne répond plus — au démarrage ou en cours de route —,
+# l'application ne se rabat jamais toute seule sur une autre base : elle y
+# écrirait vos toits sans que personne ne s'en aperçoive. Elle n'affiche plus
+# qu'une page, depuis laquelle un administrateur réessaie, ou revient d'un clic
+# à la base du .env. C'est dans cette base-là qu'il prouve être admin : celle
+# qui ne répond pas ne peut pas vérifier son compte.
+
+
+def _mark_db_down(reason):
+    global _db_down
+    _db_down = {"reason": reason, "since": time.strftime("%d/%m/%Y à %H:%M")}
+    _reset_db_pool()
+
+
+def _db_reachable():
+    """Vrai si la base active accepte une connexion neuve, sans passer par le pool."""
+    try:
+        conn = db.connect(connect_timeout=3)
+    except (psycopg2.Error, db_configs.ConfigError):
+        return False
+    conn.close()
+    return True
+
+
+def _start_database():
+    """Prépare la base active ; passe en mode secours si elle ne répond pas."""
+    global _db_down
+    try:
+        _init_db()
+    except (DatabaseUnavailable, db_configs.ConfigError) as exc:
+        _mark_db_down(str(exc))
+        return False
+    _db_down = None
+    return True
+
+
+def _recovery_response():
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Base de données injoignable"}), 503
+    return redirect(url_for("db_recovery"))
+
+
+@app.errorhandler(DatabaseUnavailable)
+@app.errorhandler(db_configs.ConfigError)
+def _handle_db_unavailable(exc):
+    _mark_db_down(str(exc))
+    return _recovery_response()
+
+
+@app.errorhandler(psycopg2.OperationalError)
+@app.errorhandler(psycopg2.InterfaceError)
+def _handle_db_error(exc):
+    # Un verrou ou un délai dépassé sur une requête n'est pas une panne : le
+    # mode secours n'est déclenché que si une connexion neuve échoue aussi.
+    if _db_reachable():
+        app.logger.error("Erreur de base de données", exc_info=exc)
+        return InternalServerError()
+    _mark_db_down(db_migration.explain(exc))
+    return _recovery_response()
+
+
+def _verify_env_admin(username, password):
+    """Vérifie un compte admin dans la base du .env ; renvoie le motif d'un refus."""
+    if not username or not password:
+        return "Identifiant et mot de passe requis."
+    try:
+        conn = db.connect(db.ENV, connect_timeout=5)
+    except psycopg2.Error as exc:
+        return "La base du .env ne répond pas non plus : " + db_migration.explain(exc)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT password_hash, is_admin FROM users WHERE username = %s", (username,))
+            row = cur.fetchone()
+    except psycopg2.Error as exc:
+        return "Impossible de vérifier le compte dans la base du .env : " + db_migration.explain(exc)
+    finally:
+        conn.close()
+    if row is None or not check_password_hash(row[0], password):
+        return "Identifiant ou mot de passe incorrect pour la base du .env."
+    if not row[1]:
+        return "Ce compte n'est pas administrateur dans la base du .env."
+    return None
+
+
+def _recovery_context():
+    try:
+        active_id = db_configs.active_id()
+    except db_configs.ConfigError:
+        active_id = "?"
+    env_label = db_configs.env_label()
+    label = env_label
+    if active_id:
+        try:
+            label = _db_label(active_id)
+        except db_configs.ConfigError:
+            label = "Configuration enregistrée depuis la page"
+    return {"label": label, "is_env": not active_id, "env_label": env_label, **(_db_down or {})}
+
+
+def _render_recovery(error=None, status=200):
+    return render_template("recovery.html", error=error, **_recovery_context()), status
+
+
+@app.route("/secours")
+def db_recovery():
+    if _db_down is None:
+        return redirect(url_for("landing"))
+    return _render_recovery()
+
+
+@app.route("/secours/reessayer", methods=["POST"])
+def db_recovery_retry():
+    if _db_down is None:
+        return redirect(url_for("landing"))
+    if not _db_reachable():
+        return _render_recovery("La base ne répond toujours pas.", 503)
+    if not _start_database():
+        return _render_recovery("La base répond, mais la préparation de ses tables a échoué.", 503)
+    return redirect(url_for("landing"))
+
+
+@app.route("/secours/revenir-env", methods=["POST"])
+def db_recovery_use_env():
+    if _db_down is None:
+        return redirect(url_for("landing"))
+    context = _recovery_context()
+    if context["is_env"]:
+        return _render_recovery(
+            "C'est la base du .env elle-même qui ne répond pas : il n'y a pas d'autre base "
+            "vers laquelle revenir.", 409,
+        )
+    username = request.form.get("username", "").strip()
+    error = _verify_env_admin(username, request.form.get("password", ""))
+    if error:
+        return _render_recovery(error, 401)
+
+    db_configs.use_env()
+    if not _start_database():
+        return _render_recovery("Retour au .env effectué, mais cette base ne répond pas non plus.", 503)
+    user = _find_user_by_username(username)
+    _log_database_event(
+        user["id"] if user else None, "db_recovered",
+        {"de": context["label"], "motif": context.get("reason")},
+    )
+    # Session remise à zéro : l'administrateur se reconnecte, sur une base où
+    # son compte vient d'être vérifié.
+    session.clear()
+    return redirect(url_for("login"))
+
+
 @app.route("/api/cities")
 def api_cities():
     return jsonify(
@@ -2265,8 +2591,10 @@ def _prewarm_segmentation_model():
 
 
 if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
-    _init_db()
-    threading.Thread(target=_prewarm_cities, daemon=True).start()
+    # Base injoignable au démarrage : l'application démarre quand même, en mode
+    # secours, pour qu'un administrateur puisse revenir au .env d'un clic.
+    if _start_database():
+        threading.Thread(target=_prewarm_cities, daemon=True).start()
     threading.Thread(target=_prewarm_segmentation_model, daemon=True).start()
 
 if __name__ == "__main__":

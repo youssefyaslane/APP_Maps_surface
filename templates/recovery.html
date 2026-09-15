@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Base injoignable — Netis Prospection solaire</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='login.css') }}" />
+</head>
+<body class="recovery-page">
+  <main class="login-card recovery-card">
+    <div class="login-head">
+      <img class="login-logo" src="{{ url_for('static', filename='img/logo-netis.png') }}" alt="Netis" />
+      <h1>Base de données injoignable</h1>
+      <p class="login-sub">L'application est en pause : rien n'est lu ni enregistré.</p>
+    </div>
+
+    {% if error %}
+      <p class="login-error" role="alert">{{ error }}</p>
+    {% endif %}
+
+    <dl class="recovery-facts">
+      <div><dt>Base active</dt><dd>{{ label }}</dd></div>
+      {% if reason %}<div><dt>Problème</dt><dd>{{ reason }}</dd></div>{% endif %}
+      {% if since %}<div><dt>Depuis</dt><dd>{{ since }}</dd></div>{% endif %}
+    </dl>
+
+    <form method="post" action="{{ url_for('db_recovery_retry') }}">
+      <button type="submit" class="recovery-secondary">Réessayer</button>
+    </form>
+
+    {% if is_env %}
+      <p class="recovery-explain recovery-alone">
+        C'est « {{ env_label }} », la base du fichier .env, qui ne répond pas. Réessayez quand
+        son serveur sera rétabli, ou prévenez la personne qui l'administre.
+      </p>
+    {% else %}
+      <div class="recovery-sep"><span>ou</span></div>
+      <form method="post" action="{{ url_for('db_recovery_use_env') }}">
+        <p class="recovery-explain">
+          <strong>Revenir à « {{ env_label }} »</strong>, la base du fichier .env.
+          Connectez-vous avec un compte administrateur de cette base-là.
+        </p>
+        <label>
+          <span>Identifiant</span>
+          <input type="text" name="username" autocomplete="username" required />
+        </label>
+        <label>
+          <span>Mot de passe</span>
+          <input type="password" name="password" autocomplete="current-password" required />
+        </label>
+        <button type="submit">Revenir à « {{ env_label }} »</button>
+        <p class="recovery-note">
+          Elle contient les données de sa dernière synchronisation : ce qui a été fait
+          depuis sur « {{ label }} » n'y figure pas.
+        </p>
+      </form>
+    {% endif %}
+  </main>
+</body>
+</html>

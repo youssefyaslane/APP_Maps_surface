@@ -17,6 +17,10 @@ services:
       PGUSER: "${SOLAR_DB_USER:?Renseigner SOLAR_DB_USER dans .env (voir .env.example)}"
       PGPASSWORD: "${SOLAR_DB_PASSWORD:?Renseigner SOLAR_DB_PASSWORD dans .env (voir .env.example)}"
       DB_SCHEMA: "${SOLAR_DB_SCHEMA:?Renseigner SOLAR_DB_SCHEMA dans .env (voir .env.example)}"
+      # Clé de chiffrement des mots de passe enregistrés depuis la page
+      # Administration → Base de données. Facultative : sans elle, la
+      # page refuse d'enregistrer d'autres bases (voir .env.example).
+      DB_CONFIG_KEY: "${DB_CONFIG_KEY:-}"
 
 volumes:
   cache_data:

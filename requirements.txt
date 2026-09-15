@@ -17,6 +17,10 @@ timm==1.0.29
 
 openpyxl==3.1.5
 
+# Chiffre les mots de passe des bases enregistrées depuis la page
+# d'administration (db_configs.py).
+cryptography==50.0.1
+
 # Les tests tournent dans l'image, comme tout le reste du projet
 # (`docker compose exec web python -m pytest`) : les sortir dans un
 # requirements-dev.txt les rendrait ininstallables là où on les exécute.

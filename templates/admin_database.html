@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Base de données — Netis Prospection solaire</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='admin.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='database.css') }}" />
+</head>
+<body>
+  <header class="dash-header">
+    <a class="dash-brand" href="/">
+      <span class="dash-logo">
+        <img src="{{ url_for('static', filename='img/logo-netis.png') }}" alt="Netis" />
+      </span>
+      <div>
+        <h1>Base de données</h1>
+        <p class="subtitle">Connexion PostgreSQL et migration des données</p>
+      </div>
+    </a>
+    <div class="header-links">
+      {% if current_user %}
+        <div class="user-chip">
+          <span class="user-avatar">{{ current_user.display_name[0] | upper }}</span>
+          <span class="current-user">{{ current_user.display_name }}</span>
+          <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+            <button type="submit" class="logout-btn">Déconnexion</button>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+  </header>
+
+  <main class="db-main"
+        data-status-url="{{ url_for('admin_database_migration_status') }}"
+        data-job-state="{{ job.state }}"
+        data-job-mode="{{ job.mode or '' }}"
+        data-job-target="{{ job.target or '' }}"
+        data-active-label="{{ active.label }}">
+
+    {% if message %}<p class="db-flash" role="status">{{ message }}</p>{% endif %}
+    {% if error %}<p class="admin-error" role="alert">{{ error }}</p>{% endif %}
+    {% if force_url %}
+      <form method="post" action="{{ force_url }}" class="db-force"
+            data-confirm="Activer quand même ? Le travail fait sur la base active depuis la dernière migration ne sera pas sur la nouvelle base, et une migration dans l'autre sens l'effacerait.">
+        <input type="hidden" name="force" value="1" />
+        <button type="submit" class="db-btn db-btn-delete">Activer quand même</button>
+        <span class="db-hint">Seulement pour revenir volontairement à une base plus ancienne.</span>
+      </form>
+    {% endif %}
+
+    {% if not key_ok %}
+      <div class="db-warning" role="note">
+        <strong>Clé de chiffrement absente.</strong>
+        La base active reste consultable, mais pour enregistrer d'autres bases il faut ajouter
+        <code>DB_CONFIG_KEY</code> au fichier <code>.env</code> du serveur, puis relancer l'application :
+        <pre><code>echo "DB_CONFIG_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> .env
+docker compose up -d</code></pre>
+        Gardez cette clé telle quelle : si elle change, les mots de passe enregistrés ici ne peuvent plus être relus.
+      </div>
+    {% endif %}
+
+    <div class="db-toolbar">
+      <div>
+        <h2 class="db-title">Configuration de la base</h2>
+        <p class="db-intro">Enregistrez une autre base PostgreSQL, testez-la, synchronisez-y les données, puis faites-y passer l'application.</p>
+      </div>
+      <button type="button" class="db-btn db-btn-primary" id="db-add-btn"
+              {% if not key_ok %}disabled title="Ajoutez d'abord DB_CONFIG_KEY au .env"{% endif %}>
+        + Ajouter une configuration
+      </button>
+    </div>
+
+    <section class="db-card" aria-labelledby="db-active-title">
+      <div class="db-card-head">
+        <h3 id="db-active-title">
+          <span class="db-dot {{ 'is-ok' if report.ok else 'is-down' }}" aria-hidden="true"></span>
+          Base active
+        </h3>
+        <div class="db-badges">
+          <span class="db-pill">PostgreSQL{% if report.server_version %} {{ report.server_version.split(' ')[0] }}{% endif %}</span>
+          <span class="db-pill db-pill-source">{{ 'réglée par le .env' if active.is_env else 'réglée depuis cette page' }}</span>
+        </div>
+      </div>
+      <p class="db-active-label">{{ active.label }}</p>
+      {% if not report.ok %}<p class="admin-error" role="alert">{{ report.error }}</p>{% endif %}
+      <div class="db-tiles">
+        <div class="db-tile"><span class="db-tile-k">Serveur</span><span class="db-tile-v">{{ active.host }}:{{ active.port }}</span></div>
+        <div class="db-tile"><span class="db-tile-k">Base</span><span class="db-tile-v">{{ active.dbname or '—' }}</span></div>
+        <div class="db-tile"><span class="db-tile-k">Schéma</span><span class="db-tile-v">{{ active.schema or 'public' }}</span></div>
+        <div class="db-tile"><span class="db-tile-k">Utilisateur</span><span class="db-tile-v">{{ active.user or '—' }}</span></div>
+        <div class="db-tile">
+          <span class="db-tile-k">SSL</span>
+          {% if report.ssl %}
+            <span class="db-tile-v is-good">✓ Échanges chiffrés</span>
+          {% elif report.ssl is sameas false %}
+            <span class="db-tile-v is-warn">✗ Non chiffrés</span>
+          {% else %}
+            <span class="db-tile-v">—</span>
+          {% endif %}
+        </div>
+        <div class="db-tile"><span class="db-tile-k">Contenu</span><span class="db-tile-v">{{ content }}</span></div>
+      </div>
+    </section>
+
+    <section class="db-card" aria-labelledby="db-list-title">
+      <div class="db-card-head">
+        <h3 id="db-list-title">Toutes les configurations</h3>
+      </div>
+      <p class="db-card-sub">Une seule est active à la fois. La base du fichier .env reste toujours disponible comme point de retour.</p>
+      <div class="db-table-wrap">
+        <table class="db-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Nom</th>
+              <th>Serveur</th>
+              <th>Base · schéma</th>
+              <th>Utilisateur</th>
+              <th>Statut</th>
+              <th>Créée le</th>
+              <th class="db-col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+            <tr data-label="{{ row.label }}" data-host="{{ row.host }}" data-port="{{ row.port }}"
+                data-dbname="{{ row.dbname }}" data-schema="{{ row.schema }}" data-user="{{ row.user }}"
+                data-sslmode="{{ row.sslmode }}" data-active="{{ 'true' if row.is_active else 'false' }}"
+                data-env="{{ 'true' if row.is_env else 'false' }}">
+              <td><span class="db-pill">PostgreSQL</span></td>
+              <td class="db-name">{{ row.label }}{% if row.is_env %}<span class="db-env-tag">fichier .env</span>{% endif %}</td>
+              <td class="db-mono">{{ row.host }}:{{ row.port }}</td>
+              <td>{{ row.dbname or '—' }}<span class="db-schema">{{ row.schema or 'public' }}</span></td>
+              <td>{{ row.user or '—' }}</td>
+              <td>
+                {% if row.is_active %}
+                  <span class="db-status is-active">● Active</span>
+                {% else %}
+                  <span class="db-status">Inactive</span>
+                {% endif %}
+              </td>
+              <td class="db-mono">{{ row.created_label }}</td>
+              <td>
+                <div class="db-actions">
+                  <button type="button" class="db-btn" data-test="{{ url_for('admin_database_test', config_id=row.id) }}">Tester</button>
+                  {% if not row.is_active %}
+                    <button type="button" class="db-btn db-btn-migrate" data-migrate="{{ url_for('admin_database_migrate', config_id=row.id) }}">Migrer les données</button>
+                    <form method="post" action="{{ url_for('admin_database_activate', config_id=row.id) }}"
+                          data-confirm="Faire passer l'application sur « {{ row.label }} » ? Elle travaillera sur cette base telle qu'elle est, sans rien recopier : si la base active contient du travail récent, migrez-le d'abord vers celle-ci.{% if not row.is_env %} Si cette base devient injoignable, une page de secours permettra de revenir à la base du .env.{% endif %}">
+                      <button type="submit" class="db-btn db-btn-activate">Activer</button>
+                    </form>
+                  {% endif %}
+                  {% if row.is_env or not row.is_active %}
+                    <button type="button" class="db-btn" data-edit="{{ url_for('admin_database_edit', config_id=row.id) }}">{{ 'Renommer' if row.is_env else 'Modifier' }}</button>
+                  {% endif %}
+                  {% if not row.is_env and not row.is_active %}
+                    <form method="post" action="{{ url_for('admin_database_delete', config_id=row.id) }}"
+                          data-confirm="Supprimer la configuration « {{ row.label }} » ? La base elle-même n'est pas touchée : seule son adresse est oubliée.">
+                      <button type="submit" class="db-btn db-btn-delete">Supprimer</button>
+                    </form>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <dialog class="db-dialog" id="db-form-dialog" aria-labelledby="db-form-title">
+    <form method="post" id="db-form" action="{{ url_for('admin_database_add') }}"
+          data-add-url="{{ url_for('admin_database_add') }}">
+      <header class="db-dialog-head">
+        <h2 id="db-form-title">Ajouter une configuration</h2>
+        <button type="button" class="db-close" data-close aria-label="Fermer">×</button>
+      </header>
+      <div class="db-dialog-body db-form">
+        <label>
+          <span class="db-label">Nom</span>
+          <input name="label" type="text" placeholder="Serveur de production" autocomplete="off" maxlength="80" />
+        </label>
+        <p class="db-hint" id="db-env-hint" hidden>
+          La connexion de cette base vient du fichier .env : seul son nom se modifie ici.
+        </p>
+        <fieldset class="db-conn">
+          <label>
+            <span class="db-label">Type de base</span>
+            <select disabled><option>PostgreSQL</option></select>
+            <span class="db-hint">Seul PostgreSQL est pris en charge : l'application s'appuie sur ses types propres (JSONB, colonnes générées).</span>
+          </label>
+          <div class="db-row">
+            <label class="db-grow">
+              <span class="db-label">Serveur <span class="db-req">*</span></span>
+              <input name="host" type="text" required placeholder="Adresse IP ou nom d'hôte" autocomplete="off" />
+            </label>
+            <label class="db-port">
+              <span class="db-label">Port <span class="db-req">*</span></span>
+              <input name="port" type="number" required min="1" max="65535" value="5432" />
+            </label>
+          </div>
+          <label>
+            <span class="db-label">Base <span class="db-req">*</span></span>
+            <input name="dbname" type="text" required placeholder="mydatabase" autocomplete="off" />
+          </label>
+          <label>
+            <span class="db-label">Schéma</span>
+            <input name="schema" type="text" placeholder="solar intelligence" autocomplete="off" />
+            <span class="db-hint">Nom exact, espaces et majuscules compris. Il doit déjà exister sur le serveur. Vide : schéma public.</span>
+          </label>
+          <label>
+            <span class="db-label">Utilisateur <span class="db-req">*</span></span>
+            <input name="user" type="text" required autocomplete="off" />
+          </label>
+          <label>
+            <span class="db-label">Mot de passe <span class="db-req" id="db-pw-req">*</span></span>
+            <span class="db-pw">
+              <input name="password" id="db-password" type="password" autocomplete="new-password" />
+              <button type="button" class="db-eye" id="db-eye" aria-label="Afficher le mot de passe" aria-pressed="false">👁</button>
+            </span>
+            <span class="db-hint">Chiffré avant d'être enregistré, et jamais renvoyé au navigateur.</span>
+          </label>
+          <label>
+            <span class="db-label">SSL</span>
+            <select name="sslmode">
+              <option value="prefer">prefer — chiffré si le serveur le permet</option>
+              <option value="require">require — refuser toute connexion non chiffrée</option>
+              <option value="disable">disable — jamais chiffré</option>
+            </select>
+          </label>
+        </fieldset>
+      </div>
+      <footer class="db-dialog-foot">
+        <button type="button" class="db-btn" data-close>Annuler</button>
+        <button type="submit" class="db-btn db-btn-primary">Enregistrer</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog class="db-dialog" id="db-test-dialog" aria-labelledby="db-test-title">
+    <header class="db-dialog-head">
+      <h2 id="db-test-title">Test de la connexion</h2>
+      <button type="button" class="db-close" data-close aria-label="Fermer">×</button>
+    </header>
+    <div class="db-dialog-body" id="db-test-body" aria-live="polite"></div>
+    <footer class="db-dialog-foot">
+      <button type="button" class="db-btn" data-close>Fermer</button>
+    </footer>
+  </dialog>
+
+  <dialog class="db-dialog" id="db-migrate-dialog" aria-labelledby="db-migrate-title">
+    <header class="db-dialog-head">
+      <h2 id="db-migrate-title">Migrer les données</h2>
+      <button type="button" class="db-close" data-close aria-label="Fermer">×</button>
+    </header>
+    <div class="db-dialog-body">
+      <p class="db-migrate-intro">
+        « <strong id="db-migrate-target"></strong> » va devenir identique à la base active
+        « <strong id="db-migrate-source"></strong> ». Les lignes sont rapprochées par identifiant :
+        ajoutées, mises à jour ou retirées, jamais dupliquées. La base active n'est que lue.
+      </p>
+      <div id="db-migrate-progress" aria-live="polite">
+        <p class="db-step" id="db-step">Comparaison des deux bases…</p>
+        <div class="db-bar"><span id="db-bar-fill"></span></div>
+        <p class="db-hint" id="db-step-detail"></p>
+      </div>
+      <div id="db-migrate-result" aria-live="polite"></div>
+    </div>
+    <footer class="db-dialog-foot">
+      <button type="button" class="db-btn" data-close id="db-migrate-cancel">Fermer</button>
+      <button type="button" class="db-btn db-btn-migrate" id="db-migrate-go" hidden>Appliquer</button>
+      <a class="db-btn db-btn-primary" id="db-migrate-reload" href="{{ url_for('admin_database') }}" hidden>Recharger la page</a>
+    </footer>
+  </dialog>
+
+  <script src="{{ url_for('static', filename='database.js') }}"></script>
+</body>
+</html>

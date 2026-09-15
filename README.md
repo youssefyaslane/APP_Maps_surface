@@ -262,6 +262,76 @@ L'ancienne base Docker locale (service `db`, volume `pg_data`) a été supprimé
 une fois la migration vérifiée. Il en reste une sauvegarde complète, prise juste
 avant : `~/maps_backups/maps_local_avant_migration_2026-09-15_091603.dump`.
 
+### Changer de base depuis l'interface
+
+**Administration → Base de données** (`/admin/database`, réservé aux
+administrateurs) permet de faire passer l'application sur une autre base
+PostgreSQL — un autre schéma, une autre base, un autre serveur — sans toucher
+au `.env` :
+
+1. **Ajouter** la configuration : serveur, port, base, schéma, utilisateur,
+   mot de passe, mode SSL. Le schéma doit déjà exister sur le serveur, et
+   l'utilisateur avoir le droit d'y créer des tables.
+2. **Tester** : connexion, schéma, droits, tables et lignes déjà présentes.
+3. **Migrer les données** : rend la cible **identique** à la base active
+   (comptes, entreprises, toits tracés, bâtiments, journal). Les lignes sont
+   rapprochées par identifiant — ajoutées, mises à jour ou retirées —, jamais
+   dupliquées. Un aperçu chiffré précède la mise à jour, qui se fait dans une
+   seule transaction, vérifiée ligne à ligne avant d'être validée. La base
+   active n'est que lue. Cela marche dans les deux sens, vers une base vide
+   comme vers une base qui a déjà servi — y compris la base du `.env`, pour y
+   ramener un travail fait sur une autre base.
+
+   On synchronise toujours **depuis la base active**. Si la cible contient des
+   actions que la base active ne connaît pas (elle a servi plus récemment), la
+   synchronisation est refusée : elle effacerait ce travail. Il faut alors
+   activer la base la plus récente et synchroniser depuis elle. Pour que ce
+   contrôle soit fiable, rien n'est jamais écrit dans une base inactive — pas
+   même la trace de la synchronisation, écrite dans la base active avant la
+   copie.
+4. **Activer** : l'application et les scripts passent sur la nouvelle base.
+   L'activation est refusée si votre compte administrateur n'existe pas sur la
+   cible — sinon vous seriez déconnecté sans pouvoir revenir sur la page. Elle
+   compare aussi les deux bases, et refuse si la nouvelle n'a pas les
+   dernières données de la base active : il faut **migrer, puis activer**.
+   Sinon, le travail récent resterait sur l'ancienne base, et une migration
+   dans l'autre sens l'effacerait ensuite. C'est ce contrôle-là qui protège
+   aussi les imports par script, qui n'écrivent rien au journal. « Activer
+   quand même » reste possible, pour revenir volontairement à une base plus
+   ancienne.
+
+Les configurations sont enregistrées dans le volume de cache
+(`db_configs.json`), pas dans la base, et leurs mots de passe y sont chiffrés
+avec `DB_CONFIG_KEY`, à ajouter une fois au `.env` :
+
+```bash
+echo "DB_CONFIG_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')" >> .env
+docker compose up -d
+```
+
+La base du `.env` reste toujours dans la liste, comme point de retour.
+**Renommer** permet de lui donner un nom (« Production », par exemple), repris
+partout, jusque sur la page de secours ; sa connexion, elle, ne se règle que
+dans le fichier `.env`.
+
+**Si la base active ne répond plus** — au démarrage ou en cours de route —,
+l'application passe en **mode secours** : elle n'affiche plus qu'une page,
+« Base de données injoignable », avec deux boutons. **Réessayer**, ou
+**Revenir à la base du .env**, après s'être identifié avec un compte
+administrateur de cette base-là (celle qui ne répond pas ne peut pas vérifier
+le compte). Elle ne rebascule jamais d'elle-même : elle écrirait vos toits
+dans l'autre base sans que personne ne s'en aperçoive. Une simple erreur de
+requête (verrou, délai dépassé) ne déclenche pas ce mode : il faut qu'une
+connexion neuve échoue aussi.
+
+En dernier recours, si même cette page était inaccessible, le retour au
+`.env` se fait en ligne de commande :
+
+```bash
+docker compose run --rm web python -m scripts.db_config use-env
+docker compose up -d
+```
+
 ## Comptes et authentification
 
 Toute l'application (carte, tableau de bord, page d'accueil, API) est réservée

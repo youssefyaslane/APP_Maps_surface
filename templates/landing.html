@@ -42,6 +42,13 @@
                 <span class="admin-menu-desc">Accès commercial ou admin</span>
               </span>
             </a>
+            <a class="admin-menu-item" href="{{ url_for('admin_database') }}">
+              <span class="admin-menu-icon">🗄️</span>
+              <span class="admin-menu-text">
+                <span class="admin-menu-title">Base de données</span>
+                <span class="admin-menu-desc">Connexion et migration</span>
+              </span>
+            </a>
             {# Entrée volontairement inactive : la page n'existe pas encore,
                seule l'entrée de menu est posée pour l'instant. #}
             <span class="admin-menu-item is-disabled" aria-disabled="true">

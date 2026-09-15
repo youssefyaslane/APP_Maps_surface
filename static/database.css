@@ -1,0 +1,474 @@
+/* Page Base de données — même socle que la page Comptes (dashboard.css pour
+   l'en-tête, admin.css pour les messages d'erreur) ; composants propres ici.
+   Mise en page inspirée des maquettes fournies : la base active en tuiles,
+   puis la liste des configurations et leurs actions. */
+
+/* Les boutons et blocs ci-dessous déclarent leur propre display : sans cette
+   règle, l'attribut hidden posé par database.js resterait sans effet. */
+.db-main [hidden],
+.db-dialog [hidden] { display: none !important; }
+
+.db-main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 22px 28px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.db-main .admin-error { margin: 0; }
+
+.db-flash {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #e8f5e9;
+  color: #1b5e20;
+  font-size: 14px;
+}
+
+.db-warning {
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  color: #5d4300;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.db-warning pre {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #263238;
+  color: #eceff1;
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+/* ---------- titre et bouton d'ajout ---------- */
+
+.db-toolbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.db-title { margin: 0; font-size: 22px; color: #1f5130; }
+
+.db-intro {
+  margin: 4px 0 0;
+  max-width: 62ch;
+  font-size: 14px;
+  color: #607d8b;
+}
+
+/* ---------- cartes ---------- */
+
+.db-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 18px 20px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.db-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.db-card-head h3 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 17px;
+  color: #263238;
+}
+
+.db-card-sub { margin: -6px 0 0; font-size: 13.5px; color: #607d8b; }
+
+.db-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #b0bec5;
+}
+.db-dot.is-ok { background: #2ecc71; box-shadow: 0 0 0 3px rgba(46, 204, 113, 0.18); }
+.db-dot.is-down { background: #e53935; box-shadow: 0 0 0 3px rgba(229, 57, 53, 0.18); }
+
+.db-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.db-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid #c5d3dd;
+  color: #3d6a8a;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.db-pill-source { border-color: #cfe3d3; color: #2e7d32; }
+
+.db-active-label { margin: -4px 0 0; font-size: 14px; font-weight: 600; color: #37474f; }
+
+/* ---------- tuiles de la base active ---------- */
+
+/* Six tuiles : 3 × 2, puis 2 × 3, puis 1 × 6. Un nombre de colonnes que les
+   tuiles remplissent exactement — en auto-fit, la sixième restait seule sur
+   sa ligne en grand écran. */
+.db-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .db-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 560px) {
+  .db-tiles { grid-template-columns: 1fr; }
+}
+
+.db-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f4f6f8;
+}
+
+.db-tile-k { font-size: 12px; color: #78909c; }
+
+.db-tile-v {
+  font-size: 15px;
+  font-weight: 600;
+  color: #263238;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+.db-tile-v.is-good { color: #2e7d32; }
+.db-tile-v.is-warn { color: #b26a00; }
+
+/* ---------- liste des configurations ---------- */
+
+.db-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+.db-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+
+.db-table th {
+  text-align: left;
+  padding: 10px 12px;
+  background: #eceff1;
+  color: #37474f;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.db-table td {
+  padding: 12px;
+  border-top: 1px solid #eceff1;
+  vertical-align: middle;
+}
+
+.db-name { font-weight: 600; color: #263238; }
+/* Sous le nom plutôt qu'à sa suite : dans une colonne étroite, « Fichier
+   .env par défaut » se découpait sur trois lignes. */
+.db-env-tag { display: block; font-size: 11px; font-weight: 500; color: #78909c; }
+
+.db-mono {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.db-schema { display: block; font-size: 12px; color: #78909c; }
+
+.db-status {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: #eceff1;
+  color: #607d8b;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.db-status.is-active { background: #e6f7ec; color: #1b8a4a; border: 1px solid #b8e6c8; }
+
+.db-col-actions { text-align: right; }
+
+.db-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.db-actions form { margin: 0; }
+
+/* ---------- boutons ---------- */
+
+.db-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid #cfd8dc;
+  background: #fff;
+  color: #37474f;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.db-btn:hover { border-color: #90a4ae; background: #f5f7f8; }
+.db-btn:focus-visible { outline: 2px solid #2e7d32; outline-offset: 2px; }
+.db-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.db-btn-primary { padding: 9px 16px; background: #2e7d32; border-color: #2e7d32; color: #fff; }
+.db-btn-primary:hover { background: #256428; border-color: #256428; }
+
+.db-btn-activate { background: #f0faf3; border-color: #b8e6c8; color: #1b8a4a; }
+.db-btn-activate:hover { background: #1b8a4a; border-color: #1b8a4a; color: #fff; }
+
+.db-btn-migrate { background: #fbf3fc; border-color: #e1bee7; color: #8e24aa; }
+.db-btn-migrate:hover { background: #8e24aa; border-color: #8e24aa; color: #fff; }
+
+.db-btn-delete { border-color: #e0a3a3; color: #b71c1c; }
+.db-btn-delete:hover { background: #b71c1c; border-color: #b71c1c; color: #fff; }
+
+/* ---------- fenêtres ---------- */
+
+.db-dialog {
+  width: min(560px, calc(100vw - 24px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: none;
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.25);
+  color: #263238;
+}
+.db-dialog::backdrop { background: rgba(38, 50, 56, 0.45); }
+
+/* display ne se pose que sur une fenêtre ouverte : sur <dialog> fermé, il
+   écraserait le display:none du navigateur et la fenêtre resterait visible. */
+.db-dialog[open] { display: flex; flex-direction: column; }
+.db-dialog > form { display: flex; flex-direction: column; min-height: 0; max-height: calc(100vh - 32px); }
+
+.db-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px;
+  border-bottom: 1px solid #eceff1;
+}
+.db-dialog-head h2 { margin: 0; font-size: 19px; }
+
+.db-close {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #607d8b;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.db-close:hover { background: #eceff1; }
+.db-close:focus-visible { outline: 2px solid #2e7d32; outline-offset: 1px; }
+
+.db-dialog-body { min-height: 0; padding: 18px 22px; overflow-y: auto; }
+
+.db-dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 22px;
+  border-top: 1px solid #eceff1;
+  background: #fafbfc;
+}
+
+/* ---------- formulaire ---------- */
+
+.db-form { display: flex; flex-direction: column; gap: 14px; }
+.db-form label { display: flex; flex-direction: column; gap: 6px; }
+
+.db-label { font-size: 13.5px; font-weight: 600; color: #37474f; }
+.db-req { color: #e53935; }
+.db-hint { font-size: 12px; color: #78909c; line-height: 1.4; }
+
+.db-form input,
+.db-form select {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cfd8dc;
+  border-radius: 9px;
+  background: #fff;
+  color: #263238;
+  font: inherit;
+  font-size: 14.5px;
+}
+.db-form input:focus,
+.db-form select:focus {
+  outline: none;
+  border-color: #2e7d32;
+  box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.15);
+}
+.db-form select:disabled { background: #f4f6f8; color: #607d8b; }
+
+.db-row { display: flex; gap: 12px; }
+.db-grow { flex: 1; min-width: 0; }
+.db-port { flex: none; width: 110px; }
+
+.db-pw { position: relative; display: block; }
+.db-pw input { padding-right: 46px; }
+
+.db-eye {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #607d8b;
+  font-size: 16px;
+  cursor: pointer;
+}
+.db-eye[aria-pressed="true"] { background: #eceff1; }
+.db-eye:focus-visible { outline: 2px solid #2e7d32; }
+
+/* ---------- résultats d'un test, d'une migration ---------- */
+
+.db-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+
+.db-check { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; }
+
+.db-check-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #eceff1;
+  color: #607d8b;
+  font-size: 12px;
+  font-weight: 700;
+}
+.db-check.is-ok .db-check-icon { background: #e6f7ec; color: #1b8a4a; }
+.db-check.is-ko .db-check-icon { background: #fdecea; color: #c62828; }
+.db-check.is-warn .db-check-icon { background: #fff4e0; color: #b26a00; }
+
+.db-check-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.db-check-detail { font-size: 12.5px; color: #607d8b; overflow-wrap: anywhere; }
+
+.db-verdict { margin: 16px 0 0; padding: 10px 12px; border-radius: 8px; font-size: 14px; font-weight: 600; }
+.db-verdict.is-ok { background: #e6f7ec; color: #1b6e3c; }
+.db-verdict.is-ko { background: #fdecea; color: #b71c1c; }
+.db-verdict.is-warn { background: #fff4e0; color: #8a5300; }
+
+.db-list { margin: 10px 0; padding-left: 20px; font-size: 14px; line-height: 1.6; color: #455a64; }
+.db-dialog-body > div > p:first-child { margin-top: 0; }
+
+.db-step { margin: 0 0 10px; font-weight: 600; }
+
+.db-bar { height: 8px; border-radius: 999px; background: #eceff1; overflow: hidden; }
+.db-bar span {
+  display: block;
+  width: 3%;
+  height: 100%;
+  background: linear-gradient(90deg, #8e24aa, #2e7d32);
+  transition: width 0.4s ease;
+}
+
+#db-migrate-result:not(:empty) { margin-top: 14px; }
+
+.db-migrate-intro { margin: 0 0 14px; font-size: 14px; line-height: 1.55; color: #455a64; }
+
+.db-force { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: -6px 0 0; }
+
+/* Champs de connexion regroupés : masqués d'un bloc quand on renomme la base
+   du .env, dont seule l'étiquette se modifie. */
+.db-conn {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* ---------- aperçu d'une synchronisation ---------- */
+
+.db-diff-wrap { overflow-x: auto; }
+
+.db-diff { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+
+.db-diff th {
+  text-align: right;
+  padding: 7px 10px;
+  background: #eceff1;
+  color: #37474f;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.db-diff th:first-child { text-align: left; }
+
+.db-diff td { padding: 7px 10px; border-top: 1px solid #eceff1; }
+
+.db-num { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.db-num.is-add { color: #1b8a4a; }
+.db-num.is-change { color: #b26a00; }
+.db-num.is-remove { color: #c62828; }
+.db-num.is-zero { color: #b0bec5; font-weight: 400; }
+
+@media (prefers-reduced-motion: reduce) {
+  .db-btn, .db-bar span { transition: none; }
+}
+
+/* ---------- écrans étroits ---------- */
+
+@media (max-width: 640px) {
+  .db-main { gap: 14px; padding: 14px 12px 32px; }
+  .db-card { padding: 16px 14px; }
+  .db-toolbar .db-btn-primary { width: 100%; }
+  .db-table { white-space: nowrap; }
+  /* Le tableau défile déjà horizontalement : laisser les boutons s'empiler
+     dans leur colonne ne faisait que multiplier la hauteur des lignes. */
+  .db-actions { flex-wrap: nowrap; }
+  .db-row { flex-direction: column; }
+  .db-port { width: auto; }
+  .db-dialog-head,
+  .db-dialog-body,
+  .db-dialog-foot { padding-left: 16px; padding-right: 16px; }
+  /* 16 px : en dessous, iOS zoome sur le champ actif et laisse la page décalée. */
+  .db-form input,
+  .db-form select { font-size: 16px; }
+}
