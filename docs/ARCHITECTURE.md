@@ -412,14 +412,18 @@ docker compose
         torch/torchvision en version CPU    (index PyTorch dédié)
         libgl1 + libglib2.0-0               (requis par opencv-headless)
 
-  db    postgis/postgis                     (remplace postgres:16-alpine)
-        volume  pg_data → /var/lib/postgresql/data
+base    serveur PostgreSQL partagé, hors Docker Compose
+        schéma « solar intelligence »       (connexion dans .env, voir db.py)
+        PostGIS à y installer pour l'étape 5
 ```
 
 **Trois points à corriger avant une mise en production réelle** : le serveur tourne
-avec le serveur de développement Flask (remplacer par Gunicorn) ; les identifiants
-de base sont en clair dans `docker-compose.yml` ; le port 5000 est exposé sans
-reverse proxy ni TLS.
+avec le serveur de développement Flask (remplacer par Gunicorn) ; l'application
+se connecte au serveur partagé avec un compte superutilisateur, qui peut toucher
+aux schémas des autres projets (lui préférer un rôle limité au schéma
+`solar intelligence`) ; le port 5000 est exposé sans reverse proxy ni TLS. Les
+identifiants de base ne sont plus dans `docker-compose.yml` mais dans `.env`,
+exclu de Git.
 
 ---
 
@@ -435,14 +439,18 @@ reverse proxy ni TLS.
 
 | Variable | Défaut | Rôle |
 |---|---|---|
-| `DATABASE_URL` | `postgresql://maps:maps@db:5432/maps` | Base PostgreSQL |
+| `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` | depuis `.env` | Serveur PostgreSQL partagé (ou `DATABASE_URL`, qui prime) |
+| `DB_SCHEMA` | depuis `.env` | Schéma des tables : `solar intelligence` |
 | `CACHE_DIR` | `/app/cache` | Poids du modèle, caches disque |
 | `SOLAR_PANEL_POWER_W` | `400` | Puissance unitaire d'un panneau |
 | `SOLAR_MOUNTING` | `flat` \| `tilted` | Détermine le coefficient de couverture |
 | `PVGIS_ENABLED` | `true` | Enrichissement production kWh |
 
-`DATABASE_URL` vaut aujourd'hui `db:5432` dans l'application mais `localhost:5432`
-dans les scripts. Cette divergence disparaît avec `config.py`.
+L'application et les scripts lisaient `DATABASE_URL` avec deux défauts
+différents (`db:5432` d'un côté, `localhost:5432` de l'autre). Depuis la
+migration vers le serveur partagé (15 septembre 2026), tous passent par
+`db.py`, qui fixe aussi le chemin de recherche sur le seul schéma de
+l'application.
 
 ---
 

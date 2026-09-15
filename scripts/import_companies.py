@@ -12,9 +12,8 @@ import sys
 import unicodedata
 
 import openpyxl
-import psycopg2
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://maps:maps@localhost:5432/maps")
+import db
 
 # Data_clients/ est à la racine du projet, pas dans scripts/ : le dossier de ce
 # fichier a changé quand les scripts ont été rangés, et le chemin relatif
@@ -185,7 +184,7 @@ def import_companies(xlsx_path, check_only=False, unknown_cities=None):
             return None
         return row[idx]
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db.connect()
     inserted = 0
     skipped = 0
     try:
@@ -301,7 +300,7 @@ if __name__ == "__main__":
     if check_only:
         sys.exit(1 if unknown_cities else 0)
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db.connect()
     try:
         report_possible_duplicates(conn)
     finally:

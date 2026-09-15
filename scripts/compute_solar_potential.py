@@ -15,21 +15,18 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-import psycopg2
-
 # Évite le préchargement des villes et du modèle IA au moment de l'import
 # d'app.py (inutile ici, on ne se sert que de la recherche de toit).
 os.environ.setdefault("WERKZEUG_RUN_MAIN", "true")
 
 import app as flask_app
+import db
 from domain.solar import estimate_solar
 
 # Recherches de toit menées en parallèle (l'appel Overpass domine le temps de
 # calcul). Volontairement modéré pour ne pas se faire limiter par les miroirs.
 MAX_WORKERS = 6
 BATCH_SIZE = 50
-
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://maps:maps@localhost:5432/maps")
 
 
 def reset_orphans(conn):
@@ -73,7 +70,7 @@ def reset_orphans(conn):
 def compute(recompute_all=False, retry_empty=False):
     flask_app._init_db()  # garantit la présence des colonnes de potentiel solaire
 
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db.connect()
     if recompute_all:
         where = ""
     elif retry_empty:

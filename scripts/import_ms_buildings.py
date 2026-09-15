@@ -9,13 +9,12 @@ décompressez-la, puis lancez : python -m scripts.import_ms_buildings chemin/ver
 """
 import json
 import math
-import os
 import sys
 
-import psycopg2
 import psycopg2.extras
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://maps:maps@localhost:5432/maps")
+import db
+
 BATCH_SIZE = 2000
 
 
@@ -48,7 +47,7 @@ def _polygon_centroid(coords):
 
 
 def import_ms_buildings(path):
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db.connect()
     inserted = 0
     skipped = 0
     batch = []

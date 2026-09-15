@@ -5,20 +5,18 @@ services:
       - "5000:5000"
     volumes:
       - cache_data:/app/cache
+    # La base vit sur le serveur PostgreSQL partagé, dans le schéma
+    # « solar intelligence ». Les valeurs viennent de .env (modèle versionné :
+    # .env.example). Sans elles, docker compose refuse de démarrer avec un
+    # message : retomber en silence sur une autre base ferait écrire les toits
+    # tracés au mauvais endroit sans que personne ne s'en aperçoive.
     environment:
-      - DATABASE_URL=postgresql://maps:maps@db:5432/maps
-    depends_on:
-      - db
-
-  db:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_USER=maps
-      - POSTGRES_PASSWORD=maps
-      - POSTGRES_DB=maps
-    volumes:
-      - pg_data:/var/lib/postgresql/data
+      PGHOST: "${SOLAR_DB_HOST:?Renseigner SOLAR_DB_HOST dans .env (voir .env.example)}"
+      PGPORT: "${SOLAR_DB_PORT:-5432}"
+      PGDATABASE: "${SOLAR_DB_NAME:?Renseigner SOLAR_DB_NAME dans .env (voir .env.example)}"
+      PGUSER: "${SOLAR_DB_USER:?Renseigner SOLAR_DB_USER dans .env (voir .env.example)}"
+      PGPASSWORD: "${SOLAR_DB_PASSWORD:?Renseigner SOLAR_DB_PASSWORD dans .env (voir .env.example)}"
+      DB_SCHEMA: "${SOLAR_DB_SCHEMA:?Renseigner SOLAR_DB_SCHEMA dans .env (voir .env.example)}"
 
 volumes:
   cache_data:
-  pg_data:

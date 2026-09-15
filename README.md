@@ -41,9 +41,10 @@ docker compose cp fichier.geojsonl web:/tmp/fichier.geojsonl
 docker compose exec web python -m scripts.import_ms_buildings /tmp/fichier.geojsonl
 ```
 
-**Explorer la base**
+**Explorer la base** (serveur PostgreSQL partagé, voir [Base de données](#base-de-données))
 ```bash
-docker compose exec db psql -U maps -d maps
+set -a; . ./.env; set +a
+docker run --rm -it -e PGPASSWORD="$SOLAR_DB_PASSWORD" -e PGOPTIONS='-csearch_path="solar\ intelligence"' postgres:16-alpine psql -h "$SOLAR_DB_HOST" -p "$SOLAR_DB_PORT" -U "$SOLAR_DB_USER" -d "$SOLAR_DB_NAME"
 ```
 
 **Lancer les tests**
@@ -105,7 +106,7 @@ pip install -r requirements.txt
 
 `torch` est installé séparément (index CPU dédié, plus léger que la version par défaut avec support CUDA).
 
-Définir la variable d'environnement `DATABASE_URL` vers votre instance PostgreSQL (par défaut : `postgresql://maps:maps@db:5432/maps`, adapté à Docker Compose).
+Définir les variables de connexion PostgreSQL standard (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`) et `DB_SCHEMA`, le schéma qui porte les tables — ou, à la place des `PG*`, une `DATABASE_URL`. Voir [Base de données](#base-de-données).
 
 ## Lancer l'application
 
@@ -235,15 +236,31 @@ docker compose up --build
 
 Puis ouvrir [http://127.0.0.1:5000](http://127.0.0.1:5000).
 
-`docker-compose.yml` démarre deux services :
-- `web` — l'application Flask, avec un volume (`cache_data`) monté sur `/app/cache` afin que le cache des bâtiments OSM (`tile_cache.json`) et les poids du modèle IA (`mobile_sam.pt`, ~40 Mo, téléchargés au premier démarrage) survivent aux redémarrages du conteneur
-- `db` — PostgreSQL 16, avec un volume (`pg_data`) pour la persistance des toits détectés/tracés
+`docker-compose.yml` ne démarre qu'un service, la base étant sur un serveur à part :
+- `web` — l'application Flask, avec un volume (`cache_data`) monté sur `/app/cache` afin que le cache des bâtiments OSM (`tile_cache.json`) et les poids du modèle IA (`mobile_sam.pt`, ~40 Mo, téléchargés au premier démarrage) survivent aux redémarrages du conteneur. Elle se connecte au serveur PostgreSQL partagé décrit dans `.env`
+## Base de données
 
-Pour explorer la base de données :
+Depuis le 15 septembre 2026, les données vivent sur le serveur PostgreSQL
+partagé, dans la base `mydatabase`, schéma **`solar intelligence`** (avec un
+espace). Les autres schémas de ce serveur appartiennent à d'autres projets :
+l'application fixe son chemin de recherche sur son seul schéma (`db.py`), ses
+requêtes ne peuvent donc ni lire ni modifier leurs tables.
+
+La connexion se règle dans `.env`, exclu de Git. Pour une nouvelle
+installation, partir du modèle versionné :
 
 ```bash
-docker compose exec db psql -U maps -d maps
+cp .env.example .env   # puis compléter hôte, base, utilisateur, mot de passe
 ```
+
+`docker-compose.yml` refuse de démarrer tant qu'une valeur manque, plutôt que
+de se rabattre en silence sur une autre base. Les scripts
+(`docker compose exec web python -m scripts.…`) passent par le même `db.py` et
+écrivent donc au même endroit que l'application.
+
+L'ancienne base Docker locale (service `db`, volume `pg_data`) a été supprimée
+une fois la migration vérifiée. Il en reste une sauvegarde complète, prise juste
+avant : `~/maps_backups/maps_local_avant_migration_2026-09-15_091603.dump`.
 
 ## Comptes et authentification
 

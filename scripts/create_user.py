@@ -14,13 +14,12 @@ l'historique du shell et dans la liste des processus).
 """
 import argparse
 import getpass
-import os
 import sys
 
-import psycopg2
 from werkzeug.security import generate_password_hash
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://maps:maps@localhost:5432/maps")
+import db
+
 MIN_PASSWORD_LENGTH = 8
 
 
@@ -30,7 +29,7 @@ def create_user(username, password, display_name=None, is_admin=None):
     commande pour simplement réinitialiser un mot de passe oublié — sans
     repasser `--admin` — rétrograderait silencieusement un compte admin
     existant en compte simple."""
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db.connect()
     try:
         with conn, conn.cursor() as cur:
             cur.execute(

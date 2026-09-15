@@ -17,6 +17,7 @@ import requests
 from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
 
+import db
 import segmentation
 from domain.solar import config as solar_config
 from domain.solar import estimate_solar as _estimate_solar
@@ -42,8 +43,7 @@ def _get_secret_key():
     une fois puis écrite dans CACHE_DIR (le volume `cache_data`, déjà utilisé
     pour le modèle IA et le cache OSM) : elle survit ainsi aux redémarrages du
     conteneur sans que personne n'ait à la configurer, et sans se retrouver en
-    clair dans docker-compose.yml comme le sont aujourd'hui les identifiants de
-    la base. La régénérer déconnecte tout le monde — c'est le seul effet de
+    clair dans docker-compose.yml. La régénérer déconnecte tout le monde — c'est le seul effet de
     bord d'un volume perdu ou d'un CACHE_DIR changé.
     """
     env_key = os.environ.get("SECRET_KEY")
@@ -69,7 +69,7 @@ app.secret_key = _get_secret_key()
 
 # Toits détectés par IA (clic simple ou zone), persistés dans PostgreSQL pour
 # rester affichés d'une session à l'autre, et supprimables par l'utilisateur.
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://maps:maps@db:5432/maps")
+# L'adresse de la base et son schéma sont réglés dans db.py.
 # Distance de dédoublonnage (en degrés) : deux détections dont le centroïde
 # est plus proche que ça sont considérées comme le même toit.
 IA_SEGMENT_DEDUP_DEG = 0.00005
@@ -83,7 +83,9 @@ def _get_db_pool():
     last_error = None
     for _ in range(15):
         try:
-            _db_pool = psycopg2.pool.ThreadedConnectionPool(1, 10, DATABASE_URL)
+            _db_pool = psycopg2.pool.ThreadedConnectionPool(
+                1, 10, db.DATABASE_URL, **db.connect_kwargs()
+            )
             return _db_pool
         except psycopg2.OperationalError as exc:
             last_error = exc

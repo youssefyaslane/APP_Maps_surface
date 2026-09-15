@@ -23,13 +23,12 @@ d'origine, celui que renvoyait Overpass, afin que les `roof_key` déjà en base
 """
 import json
 import math
-import os
 import sys
 
-import psycopg2
 import psycopg2.extras
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://maps:maps@localhost:5432/maps")
+import db
+
 BATCH_SIZE = 2000
 
 
@@ -93,7 +92,7 @@ def _largest_polygon(geometry):
 
 
 def main(path):
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = db.connect()
     with conn, conn.cursor() as cur:
         cur.execute(
             """
