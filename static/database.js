@@ -82,7 +82,7 @@
       const d = btn.closest("tr").dataset;
       const envOnly = d.env === "true";
       openForm({
-        title: envOnly ? "Renommer la base du fichier .env" : `Modifier « ${d.label} »`,
+        title: `Modifier « ${d.label} »`,
         action: btn.dataset.edit,
         editing: true,
         envOnly,

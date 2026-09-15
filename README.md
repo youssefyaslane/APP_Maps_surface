@@ -310,7 +310,7 @@ docker compose up -d
 ```
 
 La base du `.env` reste toujours dans la liste, comme point de retour.
-**Renommer** permet de lui donner un nom (« Production », par exemple), repris
+**Modifier** permet de lui donner un nom (« main », par exemple), repris
 partout, jusque sur la page de secours ; sa connexion, elle, ne se règle que
 dans le fichier `.env`.
 

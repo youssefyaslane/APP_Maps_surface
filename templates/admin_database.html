@@ -108,7 +108,8 @@ docker compose up -d</code></pre>
       <div class="db-card-head">
         <h3 id="db-list-title">Toutes les configurations</h3>
       </div>
-      <p class="db-card-sub">Une seule est active à la fois. La base du fichier .env reste toujours disponible comme point de retour.</p>
+      {% set env_row = rows | selectattr('is_env') | first %}
+      <p class="db-card-sub">Une seule est active à la fois. La base « {{ env_row.label }} » reste toujours disponible comme point de retour.</p>
       <div class="db-table-wrap">
         <table class="db-table">
           <thead>
@@ -130,7 +131,7 @@ docker compose up -d</code></pre>
                 data-sslmode="{{ row.sslmode }}" data-active="{{ 'true' if row.is_active else 'false' }}"
                 data-env="{{ 'true' if row.is_env else 'false' }}">
               <td><span class="db-pill">PostgreSQL</span></td>
-              <td class="db-name">{{ row.label }}{% if row.is_env %}<span class="db-env-tag">fichier .env</span>{% endif %}</td>
+              <td class="db-name">{{ row.label }}</td>
               <td class="db-mono">{{ row.host }}:{{ row.port }}</td>
               <td>{{ row.dbname or '—' }}<span class="db-schema">{{ row.schema or 'public' }}</span></td>
               <td>{{ row.user or '—' }}</td>
@@ -153,7 +154,7 @@ docker compose up -d</code></pre>
                     </form>
                   {% endif %}
                   {% if row.is_env or not row.is_active %}
-                    <button type="button" class="db-btn" data-edit="{{ url_for('admin_database_edit', config_id=row.id) }}">{{ 'Renommer' if row.is_env else 'Modifier' }}</button>
+                    <button type="button" class="db-btn" data-edit="{{ url_for('admin_database_edit', config_id=row.id) }}">Modifier</button>
                   {% endif %}
                   {% if not row.is_env and not row.is_active %}
                     <form method="post" action="{{ url_for('admin_database_delete', config_id=row.id) }}"
