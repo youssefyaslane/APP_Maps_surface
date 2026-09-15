@@ -19,17 +19,17 @@ def test_surface_absente_ou_nulle_ne_donne_aucun_panneau():
 
 
 def test_puissance_d_un_toit_de_mille_metres():
-    # 1000 m² x 0,7 = 700 m² exploitables, / 1,7 m² = 411 panneaux (tronqués),
-    # x 400 W = 164,4 kWc.
+    # 1000 m² x 0,7 = 700 m² exploitables, / 2 m² = 350 panneaux,
+    # x 500 W = 175 kWc.
     n_panels, kwc = solar.estimate_solar(1000)
-    assert n_panels == 411
-    assert kwc == pytest.approx(164.4)
+    assert n_panels == 350
+    assert kwc == pytest.approx(175.0)
 
 
 def test_le_nombre_de_panneaux_est_tronque_jamais_arrondi_au_superieur():
     # Un demi-panneau ne s'installe pas : mieux vaut annoncer moins que promettre
     # une puissance que la toiture ne portera pas.
-    small, _ = solar.estimate_solar(2.5)  # 2,5 x 0,7 / 1,7 = 1,029
+    small, _ = solar.estimate_solar(3.5)  # 3,5 x 0,7 / 2 = 1,225
     assert small == 1
 
 
@@ -53,13 +53,15 @@ def test_config_expose_les_trois_hypotheses_a_la_carte():
 def test_les_hypotheses_sont_surchargeables_par_l_environnement(monkeypatch):
     # Le coefficient de pose dépend du chantier (pose à plat ou sur châssis
     # incliné) : il doit se régler au déploiement, sans toucher au code.
+    # Valeurs volontairement différentes des défauts (0,7 et 500 W) : sinon le
+    # test passerait même si la surcharge était ignorée.
     monkeypatch.setenv("SOLAR_USABLE_ROOF_FRACTION", "1.0")
-    monkeypatch.setenv("SOLAR_PANEL_POWER_W", "500")
+    monkeypatch.setenv("SOLAR_PANEL_POWER_W", "400")
     rechargé = importlib.reload(solar)
     try:
-        n_panels, kwc = rechargé.estimate_solar(1700)
-        assert n_panels == 1000  # 1700 m² x 1,0 / 1,7
-        assert kwc == pytest.approx(500.0)
+        n_panels, kwc = rechargé.estimate_solar(2000)
+        assert n_panels == 1000  # 2000 m² x 1,0 / 2
+        assert kwc == pytest.approx(400.0)
     finally:
         monkeypatch.undo()
         importlib.reload(solar)
@@ -68,10 +70,10 @@ def test_les_hypotheses_sont_surchargeables_par_l_environnement(monkeypatch):
 def test_une_variable_d_environnement_illisible_ne_casse_pas_le_demarrage(monkeypatch):
     # Une faute de frappe dans la configuration doit dégrader vers le défaut,
     # pas empêcher l'application de démarrer.
-    monkeypatch.setenv("SOLAR_PANEL_POWER_W", "quatre cents")
+    monkeypatch.setenv("SOLAR_PANEL_POWER_W", "cinq cents")
     rechargé = importlib.reload(solar)
     try:
-        assert rechargé.SOLAR_PANEL_POWER_W == 400.0
+        assert rechargé.SOLAR_PANEL_POWER_W == 500.0
     finally:
         monkeypatch.undo()
         importlib.reload(solar)

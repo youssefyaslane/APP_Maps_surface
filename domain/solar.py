@@ -30,9 +30,9 @@ def _env_float(name, default):
     return value if value > 0 else default
 
 
-# Panneau de référence : 1,0 m x 1,7 m, 400 Wc.
-SOLAR_PANEL_AREA_M2 = _env_float("SOLAR_PANEL_AREA_M2", 1.7)
-SOLAR_PANEL_POWER_W = _env_float("SOLAR_PANEL_POWER_W", 400.0)
+# Panneau de référence : 2 m², 500 Wc (auparavant 1,7 m² et 400 Wc).
+SOLAR_PANEL_AREA_M2 = _env_float("SOLAR_PANEL_AREA_M2", 2.0)
+SOLAR_PANEL_POWER_W = _env_float("SOLAR_PANEL_POWER_W", 500.0)
 
 # Part de la toiture réellement couverte : le reste est consommé par les accès,
 # les marges de sécurité, les édicules techniques et l'espacement anti-ombrage.

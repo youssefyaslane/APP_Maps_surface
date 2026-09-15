@@ -343,7 +343,7 @@ qui fait partager le calcul entre deux clics sur le même bâtiment.
 surface du toit  →  kWc  →  kWh/an  →  dirhams
    ±30% ⚠           exact    ±5%       tarif client
 
-surface × coefficient de pose ÷ 1,7 m² × 400 W        = kWc
+surface × coefficient de pose ÷ 2 m² × 500 W          = kWc
 kWc × productible PVGIS (1 720 kWh/kWc/an Casablanca) = kWh/an
 ```
 
