@@ -13,11 +13,11 @@
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
     crossorigin=""
   />
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
 <body>
   {# Le panneau de gauche remplace l'ancienne barre flottante ET le sélecteur
-     de couches de Leaflet (retiré dans static/app.js, qui remplit #layer-list
+     de couches de Leaflet (retiré dans static/js/app.js, qui remplit #layer-list
      à partir des couches elles-mêmes pour que libellés et couleurs de légende
      restent définis au même endroit que les styles). #}
   <button id="rail-toggle" class="rail-toggle" type="button" aria-controls="rail" aria-expanded="true">
@@ -122,6 +122,6 @@
      redéfinit plus les siennes, elle annonce donc la même puissance que le
      tableau de bord et le calcul en masse. #}
   <script>window.SOLAR_CONFIG = {{ solar_config | tojson }};</script>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

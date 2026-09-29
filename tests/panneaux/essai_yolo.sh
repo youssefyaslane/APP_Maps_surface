@@ -5,7 +5,7 @@
 # la réponse soit notée juste ou fausse.
 set -euo pipefail
 ICI="$(cd "$(dirname "$0")" && pwd)"
-source "$ICI/../../scripts/yolo_conteneur.sh"
+source "$ICI/../../scripts/panneaux/yolo_conteneur.sh"
 yolo_demarrer "$ICI/img"
 echo
 docker exec "${YOLO_EXEC[@]}" python -u /classer.py /images 2>&1 \

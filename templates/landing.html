@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='landing.css') }}" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}" />
 </head>
 <body>
 
@@ -163,7 +163,7 @@
         {% endfor %}
       </div>
       {% else %}
-      <p class="vide">Aucun potentiel calculé pour l'instant. Lancez <code>python -m scripts.compute_solar_potential</code>.</p>
+      <p class="vide">Aucun potentiel calculé pour l'instant. Lancez <code>python -m scripts.calcul.compute_solar_potential</code>.</p>
       {% endif %}
     </section>
 

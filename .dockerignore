@@ -22,3 +22,8 @@ static/img/vecteezy_*
 # Documentation : utile au dépôt, pas à l'image qui tourne.
 docs/
 backups/
+
+# Modèles d'IA téléchargés (modèle YOLO des panneaux, 53 Mo) : utilisés dans un
+# conteneur à part (scripts/panneaux/yolo_conteneur.sh), pas par l'application.
+models/
+tests/panneaux/img/

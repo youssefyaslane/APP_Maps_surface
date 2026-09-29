@@ -18,27 +18,27 @@ docker compose logs web -f     # suit les logs en direct
 **Importer de nouvelles entreprises** (déposer le(s) fichier(s) `.xlsx` dans `Data_clients/` d'abord)
 ```bash
 docker compose cp Data_clients/mon_fichier.xlsx web:/app/Data_clients/mon_fichier.xlsx
-docker compose exec web python -m scripts.import_companies --check   # vérifie les villes, n'écrit rien
-docker compose exec web python -m scripts.import_companies
+docker compose exec web python -m scripts.donnees.import_companies --check   # vérifie les villes, n'écrit rien
+docker compose exec web python -m scripts.donnees.import_companies
 ```
 
 **Calculer le potentiel solaire** (à faire après chaque import)
 ```bash
-docker compose exec web python -m scripts.compute_solar_potential               # seulement les nouvelles
-docker compose exec web python -m scripts.compute_solar_potential --retry-empty # retente les échecs réseau
-docker compose exec web python -m scripts.compute_solar_potential --all         # tout recalculer
+docker compose exec web python -m scripts.calcul.compute_solar_potential               # seulement les nouvelles
+docker compose exec web python -m scripts.calcul.compute_solar_potential --retry-empty # retente les échecs réseau
+docker compose exec web python -m scripts.calcul.compute_solar_potential --all         # tout recalculer
 ```
 
 **Exporter les grands toits sans entreprise connue** (angle mort à explorer manuellement)
 ```bash
-docker compose exec web python -m scripts.export_unmatched_roofs
+docker compose exec web python -m scripts.donnees.export_unmatched_roofs
 docker compose cp web:/app/grands_toits_sans_entreprise.csv Data_clients/Grands_toits/grands_toits_sans_entreprise.csv
 ```
 
 **Importer des bâtiments Microsoft** (une seule fois par zone, voir plus bas)
 ```bash
 docker compose cp fichier.geojsonl web:/tmp/fichier.geojsonl
-docker compose exec web python -m scripts.import_ms_buildings /tmp/fichier.geojsonl
+docker compose exec web python -m scripts.donnees.import_ms_buildings /tmp/fichier.geojsonl
 ```
 
 **Explorer la base** (serveur PostgreSQL partagé, voir [Base de données](#base-de-données))
@@ -54,7 +54,7 @@ docker compose exec web python -m pytest tests/ -q
 
 **Créer un compte** (accès requis pour tout l'outil, voir [Comptes et authentification](#comptes-et-authentification))
 ```bash
-docker compose exec web python -m scripts.create_user identifiant
+docker compose exec web python -m scripts.admin.create_user identifiant
 ```
 
 Les tests portent sur les fonctions pures (géométrie, potentiel solaire, clauses
@@ -86,7 +86,7 @@ Accès : carte sur [http://127.0.0.1:5000](http://127.0.0.1:5000), tableau de bo
 - **Liaison entreprise ↔ toit** : à l'ouverture du panneau détaillé d'une entreprise, recherche automatique du toit sous ses coordonnées et affichage de sa surface et de son potentiel solaire directement dans le panneau. Les autres couches sont temporairement masquées pour isoler visuellement le toit concerné (surbrillance jaune), puis restaurées à la fermeture du panneau
 - **Tableau de bord commercial** (`/dashboard`) : liste des prospects classés par puissance installable décroissante, statistiques globales, filtres (recherche par nom/adresse, ville, catégorie, puissance minimale), export CSV pour Excel, et lien direct vers chaque toit sur la carte
 - **Entreprises déjà équipées** : une entreprise qui a déjà des panneaux solaires n'est plus un prospect. Le bouton **« Déjà équipée »** (sur chaque ligne du tableau de bord, ou dans la fiche entreprise de la carte) la retire de la liste, des statistiques, de l'export et de la page d'accueil ; elle reste sur la carte, en gris. La vue **« Déjà équipées »** des filtres les liste, avec un bouton **« Rétablir »**. Rien n'est supprimé — un import recréerait l'entreprise — et chaque geste est noté dans le journal. Ouvert à tous les comptes : ce sont les commerciaux qui le constatent
-- **Détection automatique des panneaux déjà posés** : `bash scripts/classer_panneaux.sh` analyse l'image satellite de chaque toit (Esri, zoom 19) avec un modèle YOLO entraîné sur les photos IGN ([Cyrille37/solar-panels-IGN-bdortho](https://huggingface.co/Cyrille37/solar-panels-IGN-bdortho), MIT) et enregistre toutes ses confiances dans la table `pv_detections`. Le tableau de bord en tire la colonne **« Déjà équipé ? »** (Oui au-dessus du seuil `PV_SEUIL`, 0,25 par défaut, choisi en vérifiant à l'œil les toits de chaque tranche de confiance) et le filtre **« Panneaux »**. Aucune image n'est écrite sur le disque : les toits passent en mémoire, par un tuyau, jusqu'au modèle, qui tourne dans un conteneur jetable coupé d'Internet. Relancée, la commande n'analyse que les toits nouveaux (`--tout` pour tout refaire). Un « Oui » est à confirmer (le modèle se trompe sur des gradins ou des verrières) : seul le bouton « Déjà équipée » retire une entreprise de la liste. Essai sur des images : `bash tests/panneaux/essai_yolo.sh`
+- **Détection automatique des panneaux déjà posés** : `bash scripts/panneaux/classer_panneaux.sh` analyse l'image satellite de chaque toit (Esri, zoom 19) avec un modèle YOLO entraîné sur les photos IGN ([Cyrille37/solar-panels-IGN-bdortho](https://huggingface.co/Cyrille37/solar-panels-IGN-bdortho), MIT) et enregistre toutes ses confiances dans la table `pv_detections`. Le tableau de bord en tire la colonne **« Déjà équipé ? »** (Oui au-dessus du seuil `PV_SEUIL`, 0,25 par défaut, choisi en vérifiant à l'œil les toits de chaque tranche de confiance) et le filtre **« Panneaux »**. Aucune image n'est écrite sur le disque : les toits passent en mémoire, par un tuyau, jusqu'au modèle, qui tourne dans un conteneur jetable coupé d'Internet. Relancée, la commande n'analyse que les toits nouveaux (`--tout` pour tout refaire). Un « Oui » est à confirmer (le modèle se trompe sur des gradins ou des verrières) : seul le bouton « Déjà équipée » retire une entreprise de la liste. Essai sur des images : `bash tests/panneaux/essai_yolo.sh`
 - Cache par tuile (mémoire + disque) et récupération parallélisée pour des temps de réponse rapides
 - Préchargement du modèle IA au démarrage, et des tuiles OpenStreetMap **uniquement pour les villes hors de l'emprise ingérée** : depuis l'import de l'extrait Geofabrik, la région de Casablanca est servie par la base et n'a plus rien à préchauffer sur Overpass
 
@@ -136,10 +136,10 @@ Placez un ou plusieurs exports scraper Google Maps (`.xlsx`) dans le dossier `Da
 Puis lancez :
 
 ```bash
-python -m scripts.import_companies
+python -m scripts.donnees.import_companies
 ```
 
-Sans argument, le script importe **tous** les `.xlsx` trouvés dans `Data_clients/` (ou passez un ou plusieurs chemins explicites : `python -m scripts.import_companies fichier1.xlsx fichier2.xlsx`). L'import est idempotent : relancer le script met à jour les entreprises déjà importées (dédoublonnage par `placeId`, y compris entre plusieurs fichiers) plutôt que de créer des doublons.
+Sans argument, le script importe **tous** les `.xlsx` trouvés dans `Data_clients/` (ou passez un ou plusieurs chemins explicites : `python -m scripts.donnees.import_companies fichier1.xlsx fichier2.xlsx`). L'import est idempotent : relancer le script met à jour les entreprises déjà importées (dédoublonnage par `placeId`, y compris entre plusieurs fichiers) plutôt que de créer des doublons.
 
 Pour une ligne **sans `placeId`**, le dédoublonnage se rabat sur le nom exact à moins de 50 m d'une entreprise déjà connue. Sans ce repli, `ON CONFLICT (place_id)` ne se déclenchait jamais — deux `NULL` ne sont pas égaux pour un index unique — et chaque relance recréait la même entreprise indéfiniment.
 
@@ -150,10 +150,10 @@ En fin d'import, le script signale les **doublons probables** : même nom à moi
 La colonne `city` des exports Google Places contient indifféremment une ville, un quartier (`MAARIF`, `CFC`), une boîte postale (`BP2628`) ou un fragment d'adresse (`droite`, `4eb057139409`). Onze valeurs de ce genre s'étaient retrouvées en base et polluaient le filtre du tableau de bord, qui proposait des villes ne ramenant aucune entreprise.
 
 ```bash
-python -m scripts.import_companies --check
+python -m scripts.donnees.import_companies --check
 ```
 
-`--check` n'écrit rien. Il applique le nettoyage de forme — espaces, suffixe `, Maroc`, code postal accolé, casse et accents — puis liste les villes qui ne correspondent à **aucune ville déjà en base**, avec un exemple d'entreprise et un lien Google Maps pour trancher. Il sort en code 1 s'il en trouve, ce qui permet de l'enchaîner : `python -m scripts.import_companies --check && python -m scripts.import_companies`.
+`--check` n'écrit rien. Il applique le nettoyage de forme — espaces, suffixe `, Maroc`, code postal accolé, casse et accents — puis liste les villes qui ne correspondent à **aucune ville déjà en base**, avec un exemple d'entreprise et un lien Google Maps pour trancher. Il sort en code 1 s'il en trouve, ce qui permet de l'enchaîner : `python -m scripts.donnees.import_companies --check && python -m scripts.donnees.import_companies`.
 
 Le partage est volontaire : ce qui relève de l'orthographe est corrigé en silence (`casablanca maroc` → `Casablanca`, `Mohammédia` et `MOHAMMEDIA` fusionnés sur une seule entrée du filtre), mais décider que `CFC` désigne Casablanca demande une connaissance géographique qu'un script n'a pas — ces valeurs sont signalées, jamais réécrites au jugé.
 
@@ -163,7 +163,7 @@ Avec Docker, `Data_clients/` n'étant pas monté en volume (dossier exclu du dé
 
 ```bash
 docker compose cp Data_clients/mon_fichier.xlsx web:/app/Data_clients/mon_fichier.xlsx
-docker compose exec web python -m scripts.import_companies
+docker compose exec web python -m scripts.donnees.import_companies
 ```
 
 Après un import, lancez `compute_solar_potential.py` pour calculer le potentiel solaire des nouvelles entreprises et les faire apparaître au tableau de bord.
@@ -177,14 +177,14 @@ Pour compléter les zones peu couvertes par OSM avec des empreintes de bâtiment
 3. Importez-la :
 
 ```bash
-python -m scripts.import_ms_buildings chemin/vers/fichier.geojsonl
+python -m scripts.donnees.import_ms_buildings chemin/vers/fichier.geojsonl
 ```
 
 Avec Docker (copier le fichier dans le conteneur d'abord) :
 
 ```bash
 docker compose cp fichier.geojsonl web:/tmp/fichier.geojsonl
-docker compose exec web python -m scripts.import_ms_buildings /tmp/fichier.geojsonl
+docker compose exec web python -m scripts.donnees.import_ms_buildings /tmp/fichier.geojsonl
 ```
 
 Ce dataset ne contient ni nom ni adresse — uniquement la géométrie du toit (aucune notion sémantique de « bâtiment », c'est un modèle de vision par ordinateur).
@@ -206,7 +206,7 @@ Accessible depuis la carte (bouton « ☀️ Prospects solaires ») ou directeme
 Le tableau de bord s'alimente d'un calcul en masse qui, pour chaque entreprise, cherche le toit sous ses coordonnées et en déduit le nombre de panneaux installables :
 
 ```bash
-docker compose exec web python -m scripts.compute_solar_potential
+docker compose exec web python -m scripts.calcul.compute_solar_potential
 ```
 
 Sans argument, seules les entreprises pas encore calculées sont traitées — le script est **interruptible et reprend où il s'est arrêté**. Avec `--all`, tout est recalculé. Avec `--retry-empty`, retraite aussi les entreprises déjà calculées mais sans toit trouvé : un échec réseau Overpass ponctuel pendant un gros calcul peut laisser une entreprise "sans toit" alors qu'un bâtiment OSM existe bien (visible au clic manuel sur la carte, qui retente l'appel) — beaucoup moins coûteux qu'un `--all` complet puisqu'il ne retraite que ce sous-ensemble.
@@ -245,7 +245,7 @@ Puis ouvrir [http://127.0.0.1:5000](http://127.0.0.1:5000).
 Depuis le 15 septembre 2026, les données vivent sur le serveur PostgreSQL
 partagé, dans la base `mydatabase`, schéma **`solar intelligence`** (avec un
 espace). Les autres schémas de ce serveur appartiennent à d'autres projets :
-l'application fixe son chemin de recherche sur son seul schéma (`db.py`), ses
+l'application fixe son chemin de recherche sur son seul schéma (`base/db.py`), ses
 requêtes ne peuvent donc ni lire ni modifier leurs tables.
 
 La connexion se règle dans `.env`, exclu de Git. Pour une nouvelle
@@ -257,7 +257,7 @@ cp .env.example .env   # puis compléter hôte, base, utilisateur, mot de passe
 
 `docker-compose.yml` refuse de démarrer tant qu'une valeur manque, plutôt que
 de se rabattre en silence sur une autre base. Les scripts
-(`docker compose exec web python -m scripts.…`) passent par le même `db.py` et
+(`docker compose exec web python -m scripts.…`) passent par le même `base/db.py` et
 écrivent donc au même endroit que l'application.
 
 L'ancienne base Docker locale (service `db`, volume `pg_data`) a été supprimée
@@ -330,7 +330,7 @@ En dernier recours, si même cette page était inaccessible, le retour au
 `.env` se fait en ligne de commande :
 
 ```bash
-docker compose run --rm web python -m scripts.db_config use-env
+docker compose run --rm web python -m scripts.admin.db_config use-env
 docker compose up -d
 ```
 
@@ -355,7 +355,7 @@ Le tout premier compte, lui, ne peut pas se créer depuis cette page : elle
 exige déjà d'être admin pour y accéder. Il s'amorce en ligne de commande :
 
 ```bash
-docker compose exec web python -m scripts.create_user identifiant --admin
+docker compose exec web python -m scripts.admin.create_user identifiant --admin
 ```
 
 Le mot de passe est saisi de façon interactive (jamais en argument de
@@ -382,7 +382,7 @@ supprimés, dont la ligne d'origine disparaît mais dont la trace, elle, reste.
 ```
 app.py                  Serveur Flask + logique Overpass/cache/calcul de surface + persistance PostgreSQL
 domain/solar.py         Hypothèses d'installation et estimation kWc — source unique, sans I/O
-segmentation.py         Segmentation IA des bâtiments (extraction imagerie satellite + MobileSAM)
+domain/segmentation.py         Segmentation IA des bâtiments (extraction imagerie satellite + MobileSAM)
 import_companies.py     Import en masse des entreprises depuis un/des export(s) .xlsx vers PostgreSQL
 import_ms_buildings.py  Import des empreintes de bâtiments Microsoft (.geojsonl) vers PostgreSQL
 compute_solar_potential.py  Calcul en masse du potentiel solaire des entreprises (alimente /dashboard)
@@ -391,14 +391,14 @@ create_user.py           Crée ou met à jour un compte (identifiant + mot de pa
 templates/index.html    Page principale (carte Leaflet)
 templates/dashboard.html    Tableau de bord commercial (liste de prospects)
 templates/login.html    Page de connexion
-templates/admin_users.html  Page d'administration des comptes (admin uniquement)
+templates/admin/admin_users.html  Page d'administration des comptes (admin uniquement)
 templates/error.html    Page d'erreur générique (403, etc.)
-static/app.js           Logique frontend (couches, tooltip, recherche, clic/zone/tracé IA, entreprises)
-static/dashboard.js     Logique du tableau de bord (stats, filtres, tableau, export)
-static/style.css        Styles de la carte
-static/dashboard.css    Styles du tableau de bord
-static/login.css        Styles de la page de connexion
-static/admin.css        Styles de la page d'administration des comptes
+static/js/app.js           Logique frontend (couches, tooltip, recherche, clic/zone/tracé IA, entreprises)
+static/js/dashboard.js     Logique du tableau de bord (stats, filtres, tableau, export)
+static/css/style.css        Styles de la carte
+static/css/dashboard.css    Styles du tableau de bord
+static/css/login.css        Styles de la page de connexion
+static/css/admin.css        Styles de la page d'administration des comptes
 tests/                  Tests des fonctions pures (géométrie, solaire, filtres, auth) — ni base ni réseau
 requirements.txt        Dépendances Python (hors torch, installé séparément)
 Dockerfile               Image de l'application
@@ -434,7 +434,7 @@ accès sans session redirige vers la page de connexion (`GET /login`,
 Équivalent en script, pour l'exécuter directement sans passer par le serveur HTTP :
 
 ```bash
-docker compose exec web python -m scripts.export_unmatched_roofs [surface_min_m2] [chemin_sortie.csv]
+docker compose exec web python -m scripts.donnees.export_unmatched_roofs [surface_min_m2] [chemin_sortie.csv]
 ```
 
 Sans argument, exporte les toits ≥ 2000 m² vers `grands_toits_sans_entreprise.csv` (dans le conteneur — le récupérer avec `docker compose cp web:/app/grands_toits_sans_entreprise.csv .`).
@@ -445,12 +445,12 @@ La table `companies` porte aussi le résultat du calcul de potentiel solaire (`r
 
 Le cache des bâtiments OSM est doublé en mémoire et sur disque (`tile_cache.json`), avec une durée de validité de 30 minutes. Il est **partagé** entre la carte, la recherche de toit d'entreprise et le calcul en masse : les entreprises d'une même zone (tuiles de 0,03°, ~3 km) se partagent les mêmes données OSM, ce qui accélère fortement `compute_solar_potential.py` (~13× mesuré). Un verrou par tuile évite que plusieurs recherches simultanées déclenchent chacune leur propre appel Overpass. Les toits détectés par IA ou tracés manuellement sont persistés indéfiniment dans la table PostgreSQL `ia_segments` (colonne `source` = `ia-segmentation` ou `manual-trace`), avec dédoublonnage par proximité de centroïde. Le chemin de cache local (bâtiments OSM et poids du modèle IA) est configurable via la variable d'environnement `CACHE_DIR` (par défaut : racine du projet).
 
-### Segmentation IA (`segmentation.py`)
+### Segmentation IA (`domain/segmentation.py`)
 
 Au clic, une grille de tuiles satellite Esri (haute résolution, zoom 19) est assemblée autour du point cliqué, puis [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) (version allégée de Segment Anything, ~40 Mo, tourne sur CPU) segmente la forme sous le point. Pour la sélection de zone, `SamAutomaticMaskGenerator` (grille de 20×20 points d'échantillonnage) détecte automatiquement toutes les formes de la zone. Deux filtres écartent ensuite les faux positifs :
 
 - **Taille plausible** (15–4000 m²)
-- **Couleur moyenne du masque** : rejet de la végétation (teinte verte) et de l'asphalte (gris sombre peu saturé) — routes, parkings, jardins. Seuils ajustables en tête de `segmentation.py` (`VEGETATION_HUE_RANGE`, `ASPHALT_MAX_VALUE`…)
+- **Couleur moyenne du masque** : rejet de la végétation (teinte verte) et de l'asphalte (gris sombre peu saturé) — routes, parkings, jardins. Seuils ajustables en tête de `domain/segmentation.py` (`VEGETATION_HUE_RANGE`, `ASPHALT_MAX_VALUE`…)
 - **Forme du contour** : un toit vu du ciel est compact et remplit bien son rectangle englobant. Deux ratios sans dimension écartent ce que la couleur ne distingue pas — la *compacité* (`4π·aire / périmètre²`) élimine les bandes étirées et les contours déchiquetés, la *rectangularité* (`aire / aire du rectangle englobant`) élimine les formes qui « flottent » dans leur rectangle, typiquement une route en diagonale. Seuils `MIN_SHAPE_COMPACTNESS` et `MIN_SHAPE_RECTANGULARITY` ; calibrés pour conserver les bâtiments allongés (hangars 5:1) et les toits en L
 
 Le masque retenu est converti en polygone géoréférencé et sa surface est calculée.

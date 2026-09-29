@@ -21,13 +21,13 @@ services:
       # Administration → Base de données. Facultative : sans elle, la
       # page refuse d'enregistrer d'autres bases (voir .env.example).
       DB_CONFIG_KEY: "${DB_CONFIG_KEY:-}"
-      # Clé Google AI Studio pour scripts/detect_panels_gemini.py (toits déjà
+      # Clé Google AI Studio pour scripts/panneaux/detect_panels_gemini.py (toits déjà
       # équipés de panneaux). Facultative : sans elle, seul ce script refuse de
       # tourner. GEMINI_MODEL choisit un autre modèle que celui par défaut.
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       GEMINI_MODEL: "${GEMINI_MODEL:-gemini-3-flash-preview}"
       # Confiance à partir de laquelle un toit s'affiche « avec panneaux » dans
-      # le tableau de bord (détection : scripts/classer_panneaux.sh).
+      # le tableau de bord (détection : scripts/panneaux/classer_panneaux.sh).
       PV_SEUIL: "${PV_SEUIL:-0.25}"
 
 volumes:

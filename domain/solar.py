@@ -6,7 +6,7 @@ un toit pouvait afficher une puissance sur la carte et une autre au tableau de
 bord sans qu'aucune ligne ne paraisse fausse.
 
 Le module ne fait aucune I/O — ni base, ni réseau — et se teste donc sans rien
-démarrer (`tests/test_solar.py`).
+démarrer (`tests/domain/test_solar.py`).
 
 Les valeurs sont surchargeables par l'environnement : une hypothèse de pose
 n'est pas une décision de code, elle dépend du chantier.

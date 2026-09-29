@@ -18,11 +18,11 @@ from flask import Flask, Response, jsonify, redirect, render_template, request, 
 from werkzeug.exceptions import InternalServerError
 from werkzeug.security import check_password_hash
 
-import db
-import db_configs
-import db_migration
-import schema as table_schema
-import segmentation
+from base import db
+from base import db_configs
+from base import db_migration
+from base import schema as table_schema
+from domain import segmentation
 from domain.solar import config as solar_config
 from domain.solar import estimate_solar as _estimate_solar
 
@@ -73,7 +73,7 @@ app.secret_key = _get_secret_key()
 
 # Toits détectés par IA (clic simple ou zone), persistés dans PostgreSQL pour
 # rester affichés d'une session à l'autre, et supprimables par l'utilisateur.
-# L'adresse de la base et son schéma sont réglés dans db.py.
+# L'adresse de la base et son schéma sont réglés dans base/db.py.
 # Distance de dédoublonnage (en degrés) : deux détections dont le centroïde
 # est plus proche que ça sont considérées comme le même toit.
 IA_SEGMENT_DEDUP_DEG = 0.00005
@@ -126,7 +126,7 @@ def _reset_db_pool():
 
 
 def _init_db():
-    """Crée les tables manquantes dans la base active (définitions : schema.py)."""
+    """Crée les tables manquantes dans la base active (définitions : base/schema.py)."""
     pool = _get_db_pool()
     conn = pool.getconn()
     try:
@@ -235,7 +235,7 @@ def _list_users():
 def _create_user(username, password, display_name=None, is_admin=False, created_by=None):
     """Crée un compte, ou renvoie None si l'identifiant existe déjà.
 
-    Contrairement à `scripts/create_user.py` (pensé pour la ligne de commande,
+    Contrairement à `scripts/admin/create_user.py` (pensé pour la ligne de commande,
     où relancer la commande pour changer un mot de passe oublié est le geste
     naturel), la page d'administration ne doit pas silencieusement écraser un
     compte existant si on se trompe d'identifiant en le créant : mieux vaut un
@@ -1235,7 +1235,7 @@ def admin_users():
                 return redirect(url_for("admin_users"))
 
     return render_template(
-        "admin_users.html", users=_list_users(), error=error, me=session.get("user_id")
+        "admin/admin_users.html", users=_list_users(), error=error, me=session.get("user_id")
     )
 
 
@@ -1245,7 +1245,7 @@ def admin_delete_user(user_id):
     error = _delete_user(user_id, deleted_by=session.get("user_id"))
     if error:
         return render_template(
-            "admin_users.html", users=_list_users(), error=error, me=session.get("user_id")
+            "admin/admin_users.html", users=_list_users(), error=error, me=session.get("user_id")
         ), 409
     return redirect(url_for("admin_users"))
 
@@ -1254,8 +1254,8 @@ def admin_delete_user(user_id):
 #
 # Page réservée aux administrateurs : enregistrer d'autres bases PostgreSQL,
 # les tester, y recopier les données, puis y faire passer l'application.
-# Les configurations vivent hors de la base (db_configs.py) ; le diagnostic
-# et la copie, dans db_migration.py.
+# Les configurations vivent hors de la base (base/db_configs.py) ; le diagnostic
+# et la copie, dans base/db_migration.py.
 
 DB_ADMIN_MESSAGES = {
     "added": "Configuration enregistrée. Testez-la, puis migrez les données avant de l'activer.",
@@ -1405,7 +1405,7 @@ def _render_database_admin(error=None, status=200, force_url=None):
         f"{nombre(tables.get('users'))} comptes"
     )
     return render_template(
-        "admin_database.html",
+        "admin/admin_database.html",
         rows=rows,
         active=active,
         report=report,
@@ -2178,7 +2178,7 @@ def api_company_roof():
     )
 
 
-# Détection automatique des panneaux déjà posés (scripts/classer_panneaux.sh) :
+# Détection automatique des panneaux déjà posés (scripts/panneaux/classer_panneaux.sh) :
 # confiance du modèle à partir de laquelle un toit s'affiche « avec panneaux ».
 # Seul l'affichage en dépend ; toutes les confiances restent en base.
 PV_SEUIL = float(os.environ.get("PV_SEUIL", "0.25"))

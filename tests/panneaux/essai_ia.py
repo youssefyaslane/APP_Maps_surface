@@ -5,7 +5,7 @@ Usage, depuis le dossier du projet :
     venv/bin/python tests/panneaux/essai_ia.py --ia gemini
 
 Chaque image part telle quelle avec la même question que le script complet
-(scripts/detect_panels_gemini.py). Si le nom du fichier contient
+(scripts/panneaux/detect_panels_gemini.py). Si le nom du fichier contient
 « avec_panneaux » ou « sans_panneaux », la réponse est comparée à l'attendu.
 
 Les clés sont lues dans l'environnement, sinon dans le fichier .env du projet :
@@ -24,7 +24,7 @@ import requests
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from scripts.detect_panels_gemini import (API as GEMINI_API, DEFAULT_MODEL as GEMINI_DEFAULT,
+from scripts.panneaux.detect_panels_gemini import (API as GEMINI_API, DEFAULT_MODEL as GEMINI_DEFAULT,
                                           PROMPT, SCHEMA as GEMINI_SCHEMA, parse_verdict, verdict_from_text)
 
 IMG_DIR = os.path.join(ROOT, "tests", "panneaux", "img")
