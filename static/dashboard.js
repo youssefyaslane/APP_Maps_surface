@@ -4,6 +4,8 @@ const searchEl = document.getElementById("filter-search");
 const cityEl = document.getElementById("filter-city");
 const categoryEl = document.getElementById("filter-category");
 const minKwcEl = document.getElementById("filter-min-kwc");
+const viewEl = document.getElementById("filter-view");
+const pvEl = document.getElementById("filter-pv");
 const exportEl = document.getElementById("export-csv");
 const resultCountEl = document.getElementById("result-count");
 const paginationEl = document.getElementById("pagination");
@@ -37,12 +39,29 @@ function sourceBadge(source) {
   return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
 }
 
+// Détection automatique des panneaux déjà posés, sur l'image satellite. Ce
+// n'est qu'une indication (la confiance apparaît au survol) : le bouton « Déjà
+// équipée » reste le geste qui retire vraiment une entreprise de la liste.
+function pvBadge(pv) {
+  if (!pv) return `<span class="pv-badge pv-unknown" title="Toit pas encore analysé">—</span>`;
+  if (pv.verdict === "pas d'image") {
+    return `<span class="pv-badge pv-unknown" title="Pas d'image satellite assez précise pour ce toit">Pas d'image</span>`;
+  }
+  const conf = fmt(pv.confiance, 2);
+  if (pv.verdict === "oui") {
+    return `<span class="pv-badge pv-yes" title="${fmt(pv.nb)} panneau(x) détecté(s), confiance max ${conf}">Oui</span>`;
+  }
+  return `<span class="pv-badge pv-no" title="Aucun panneau au-dessus du seuil (confiance max ${conf})">Non</span>`;
+}
+
 function currentFilters() {
   const params = new URLSearchParams();
   if (searchEl.value.trim()) params.set("search", searchEl.value.trim());
   if (cityEl.value.trim()) params.set("city", cityEl.value.trim());
   if (categoryEl.value.trim()) params.set("category", categoryEl.value.trim());
   if (minKwcEl.value) params.set("min_kwc", minKwcEl.value);
+  if (viewEl.value === "1") params.set("equipped", "1");
+  if (pvEl.value) params.set("pv", pvEl.value);
   return params;
 }
 
@@ -94,8 +113,11 @@ function renderStats(summary) {
 // numérotation repartait de 1 à chaque page : le 51e prospect par puissance
 // s'affichait « 1 », au même rang que la plus grosse toiture de la base.
 function renderRows(prospects, startRank) {
+  const equippedView = viewEl.value === "1";
   if (!prospects.length) {
-    bodyEl.innerHTML = `<tr><td colspan="11" class="empty">
+    bodyEl.innerHTML = equippedView
+      ? `<tr><td colspan="12" class="empty">Aucune entreprise n'est marquée comme déjà équipée.</td></tr>`
+      : `<tr><td colspan="12" class="empty">
       Aucun prospect ne correspond. Lancez <code>python compute_solar_potential.py</code>
       pour calculer le potentiel solaire des entreprises.
     </td></tr>`;
@@ -121,7 +143,7 @@ function renderRows(prospects, startRank) {
         : `<span class="roof-exclusive" title="Aucune autre entreprise connue sur ce toit">✓ Exclusif</span>`;
 
       return `
-        <tr${isShared ? ' class="is-shared"' : ""}>
+        <tr data-id="${p.id}" data-name="${escapeHtml(p.name)}"${isShared ? ' class="is-shared"' : ""}>
           <td class="rank">${fmt(startRank + idx)}</td>
           <td>
             <span class="company-name">${escapeHtml(p.name)}</span>
@@ -134,8 +156,13 @@ function renderRows(prospects, startRank) {
           <td class="num"><strong>${fmt(p.solar_kwc, 1)} kWc</strong></td>
           <td>${sourceBadge(p.roof_source)}</td>
           <td class="roof-status">${roofStatus}</td>
+          <td>${pvBadge(p.pv)}</td>
           <td class="contact">${contact || "—"}</td>
-          <td><a class="map-link" href="/carte?lat=${p.lat}&lon=${p.lon}" title="Voir sur la carte">🗺️ Voir</a></td>
+          <td class="row-actions">
+            <a class="map-link" href="/carte?lat=${p.lat}&lon=${p.lon}" title="Voir sur la carte">🗺️ Voir</a>
+            <button type="button" class="btn-equipped" data-equipped="${equippedView ? "false" : "true"}"
+                    title="${equippedView ? "Remettre dans la liste des prospects" : "Déjà équipée de panneaux : retirer de la liste"}">${equippedView ? "Rétablir" : "Déjà équipée"}</button>
+          </td>
         </tr>`;
     })
     .join("");
@@ -175,7 +202,7 @@ function renderPagination(totalFiltered) {
 }
 
 async function load() {
-  bodyEl.innerHTML = `<tr><td colspan="11" class="empty">Chargement...</td></tr>`;
+  bodyEl.innerHTML = `<tr><td colspan="12" class="empty">Chargement...</td></tr>`;
   const params = currentFilters();
   exportEl.href = `/api/prospects.csv?${params.toString()}`;
 
@@ -193,9 +220,14 @@ async function load() {
     renderPagination(data.total_filtered);
 
     const end = start + data.prospects.length - 1;
-    resultCountEl.textContent = `${fmt(start)}–${fmt(end)} sur ${fmt(data.total_filtered)} prospect(s)`;
+    const equippedView = viewEl.value === "1";
+    const label = equippedView ? "entreprise(s) déjà équipée(s)" : "prospect(s)";
+    const hidden = !equippedView && data.summary.equipped
+      ? ` · ${fmt(data.summary.equipped)} déjà équipée(s), masquée(s)`
+      : "";
+    resultCountEl.textContent = `${fmt(start)}–${fmt(end)} sur ${fmt(data.total_filtered)} ${label}${hidden}`;
   } catch (err) {
-    bodyEl.innerHTML = `<tr><td colspan="11" class="empty">Erreur de chargement : ${escapeHtml(err.message)}</td></tr>`;
+    bodyEl.innerHTML = `<tr><td colspan="12" class="empty">Erreur de chargement : ${escapeHtml(err.message)}</td></tr>`;
     paginationEl.innerHTML = "";
   }
 }
@@ -258,6 +290,8 @@ document.getElementById("reset-filters").addEventListener("click", () => {
   cityEl.value = "";
   categoryEl.value = "";
   minKwcEl.value = "";
+  viewEl.value = "";
+  pvEl.value = "";
   applyFiltersAndReload();
 });
 [searchEl, cityEl, categoryEl, minKwcEl].forEach((el) =>
@@ -268,7 +302,34 @@ document.getElementById("reset-filters").addEventListener("click", () => {
 
 // Choisir dans une liste est un geste complet : inutile de demander en plus de
 // cliquer sur « Filtrer ».
-[cityEl, categoryEl].forEach((el) => el.addEventListener("change", applyFiltersAndReload));
+[cityEl, categoryEl, viewEl, pvEl].forEach((el) => el.addEventListener("change", applyFiltersAndReload));
+
+// « Déjà équipée » : l'entreprise a déjà des panneaux, elle sort de la liste
+// des prospects et des totaux sans être supprimée. « Rétablir » l'y remet.
+bodyEl.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".btn-equipped");
+  if (!btn) return;
+  const row = btn.closest("tr");
+  const equipped = btn.dataset.equipped === "true";
+  const question = equipped
+    ? `Retirer « ${row.dataset.name} » de la liste des prospects ? Elle restera visible sur la carte, en gris, et pourra être rétablie.`
+    : `Remettre « ${row.dataset.name} » dans la liste des prospects ?`;
+  if (!confirm(question)) return;
+  btn.disabled = true;
+  try {
+    const resp = await fetch(`/api/companies/${row.dataset.id}/equipped`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ equipped }),
+    });
+    if (!resp.ok) throw new Error();
+    load();
+    loadFilterOptions();
+  } catch {
+    btn.disabled = false;
+    alert("L'enregistrement a échoué. Réessayez.");
+  }
+});
 
 loadFilterOptions();
 load();

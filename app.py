@@ -614,7 +614,7 @@ def _query_companies(bbox):
             cur.execute(
                 """
                 SELECT id, name, category, address, city, phone, email, website, rating,
-                       lon, lat, roof_area_m2, solar_kwc
+                       lon, lat, roof_area_m2, solar_kwc, equipped_at
                 FROM companies
                 WHERE lat BETWEEN %s AND %s AND lon BETWEEN %s AND %s
                 """,
@@ -639,6 +639,7 @@ def _query_companies(bbox):
             "roof_area_m2": r[11],
             "solar_kwc": r[12],
             "has_roof": r[11] is not None,
+            "equipped": r[13] is not None,
         }
         for r in rows
     ]
@@ -1117,8 +1118,8 @@ def _landing_stats():
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT count(*) FILTER (WHERE roof_area_m2 IS NOT NULL),
-                       count(DISTINCT roof_key)
+                SELECT count(*) FILTER (WHERE roof_area_m2 IS NOT NULL AND equipped_at IS NULL),
+                       count(DISTINCT roof_key) FILTER (WHERE equipped_at IS NULL)
                 FROM companies
                 """
             )
@@ -1128,7 +1129,7 @@ def _landing_stats():
                 SELECT COALESCE(sum(area), 0), COALESCE(sum(kwc), 0) FROM (
                     SELECT DISTINCT ON (COALESCE(roof_key, 'c:' || id))
                            roof_area_m2 AS area, solar_kwc AS kwc
-                    FROM companies WHERE roof_area_m2 IS NOT NULL
+                    FROM companies WHERE roof_area_m2 IS NOT NULL AND equipped_at IS NULL
                     ORDER BY COALESCE(roof_key, 'c:' || id), solar_kwc DESC NULLS LAST
                 ) t
                 """
@@ -1138,7 +1139,7 @@ def _landing_stats():
                 "SELECT (SELECT count(*) FROM osm_buildings) + (SELECT count(*) FROM ms_buildings)"
             )
             batiments = cur.fetchone()[0]
-            cur.execute("SELECT count(*) FROM companies WHERE roof_area_m2 IS NULL")
+            cur.execute("SELECT count(*) FROM companies WHERE roof_area_m2 IS NULL AND equipped_at IS NULL")
             sans_toit = cur.fetchone()[0]
             # Meilleures cibles du moment, une par toiture : deux societes d'un
             # meme immeuble ne doivent pas occuper deux lignes du classement.
@@ -1147,7 +1148,7 @@ def _landing_stats():
                 SELECT DISTINCT ON (COALESCE(roof_key, 'c:' || id))
                        name, city, category, roof_area_m2, solar_kwc, phone, lon, lat
                 FROM companies
-                WHERE roof_area_m2 IS NOT NULL
+                WHERE roof_area_m2 IS NOT NULL AND equipped_at IS NULL
                 ORDER BY COALESCE(roof_key, 'c:' || id), solar_kwc DESC NULLS LAST
                 """
             )
@@ -2068,11 +2069,61 @@ def api_companies():
                 "roof_area_m2": r["roof_area_m2"],
                 "solar_kwc": r["solar_kwc"],
                 "has_roof": r["has_roof"],
+                "equipped": r["equipped"],
             },
         }
         for r in rows
     ]
     return jsonify({"type": "FeatureCollection", "features": features})
+
+
+def _set_company_equipped(company_id, equipped, user_id):
+    """Marque (ou démarque) une entreprise comme déjà équipée de panneaux.
+
+    Elle sort alors de la liste des prospects, des statistiques et de l'export,
+    sans être supprimée : un import la recréerait. Renvoie False si elle
+    n'existe pas.
+    """
+    pool = _get_db_pool()
+    conn = pool.getconn()
+    try:
+        with conn, conn.cursor() as cur:
+            # Re-marquer une entreprise déjà marquée garde la date et l'auteur
+            # d'origine : c'est le premier constat qui compte.
+            cur.execute(
+                """
+                UPDATE companies SET
+                    equipped_at = CASE WHEN %(eq)s THEN COALESCE(equipped_at, now()) END,
+                    equipped_by = CASE WHEN %(eq)s THEN COALESCE(equipped_by, %(user)s) END
+                WHERE id = %(id)s
+                RETURNING name
+                """,
+                {"eq": equipped, "user": user_id, "id": company_id},
+            )
+            row = cur.fetchone()
+            if row is None:
+                return False
+            _log_audit(
+                cur, user_id,
+                "company_marked_equipped" if equipped else "company_unmarked_equipped",
+                "companies", company_id, {"name": row[0]},
+            )
+    finally:
+        pool.putconn(conn)
+    return True
+
+
+@app.route("/api/companies/<int:company_id>/equipped", methods=["POST"])
+def api_company_equipped(company_id):
+    """Ouvert à tout compte connecté, pas seulement aux administrateurs : ce
+    sont les commerciaux qui constatent qu'une entreprise est déjà équipée."""
+    data = request.get_json(silent=True)
+    # Valeur explicite exigée : un corps vide ou mal formé ne doit rien marquer.
+    if not isinstance(data, dict) or not isinstance(data.get("equipped"), bool):
+        return jsonify({"error": "Préciser « equipped » : true ou false."}), 400
+    if not _set_company_equipped(company_id, data["equipped"], session.get("user_id")):
+        return jsonify({"error": "Entreprise introuvable."}), 404
+    return jsonify({"id": company_id, "equipped": data["equipped"]})
 
 
 @app.route("/api/ms_buildings")
@@ -2127,11 +2178,42 @@ def api_company_roof():
     )
 
 
-def _prospects_filter_clauses(min_kwc=None, city=None, category=None, search=None, alias=""):
+# Détection automatique des panneaux déjà posés (scripts/classer_panneaux.sh) :
+# confiance du modèle à partir de laquelle un toit s'affiche « avec panneaux ».
+# Seul l'affichage en dépend ; toutes les confiances restent en base.
+PV_SEUIL = float(os.environ.get("PV_SEUIL", "0.25"))
+
+
+def _pv_detection(has_image, scores):
+    """Verdict affiché pour un toit ; None s'il n'a pas encore été analysé."""
+    if has_image is None:
+        return None
+    if not has_image:
+        return {"verdict": "pas d'image", "confiance": None, "nb": 0}
+    scores = scores or []
+    nb = sum(1 for sc in scores if sc >= PV_SEUIL)
+    return {"verdict": "oui" if nb else "non",
+            "confiance": round(max(scores), 2) if scores else 0.0, "nb": nb}
+
+
+def _prospects_filter_clauses(min_kwc=None, city=None, category=None, search=None, alias="",
+                              equipped=False, pv=None):
     """Clauses de filtrage du tableau de bord. `alias` préfixe les colonnes
-    ("c." par exemple) quand la requête joint une autre table."""
+    ("c." par exemple) quand la requête joint une autre table.
+
+    Les entreprises déjà équipées de panneaux ne sont plus des prospects :
+    elles sortent de la liste, des filtres et de l'export. `equipped=True`
+    donne la vue inverse, celle d'où l'on peut les rétablir.
+
+    `pv` filtre sur la détection automatique : "avec" (panneaux détectés) ou
+    "sans" (toit analysé, rien au-dessus du seuil). Les toits pas encore
+    analysés ou sans image ne sortent que sans ce filtre."""
     p = f"{alias}." if alias else ""
-    clauses = [f"{p}solar_computed_at IS NOT NULL", f"{p}roof_area_m2 IS NOT NULL"]
+    clauses = [
+        f"{p}solar_computed_at IS NOT NULL",
+        f"{p}roof_area_m2 IS NOT NULL",
+        f"{p}equipped_at IS NOT NULL" if equipped else f"{p}equipped_at IS NULL",
+    ]
     params = []
 
     if min_kwc is not None:
@@ -2151,12 +2233,23 @@ def _prospects_filter_clauses(min_kwc=None, city=None, category=None, search=Non
     if search:
         clauses.append(f"({p}name ILIKE %s OR {p}address ILIKE %s)")
         params.extend([f"%{search}%", f"%{search}%"])
+    if pv in ("avec", "sans"):
+        # Qualifié par la table même sans alias : dans la sous-requête, un
+        # roof_key nu désignerait celui de pv_detections, et la condition
+        # serait toujours vraie.
+        outer = alias or "companies"
+        comparaison = ">=" if pv == "avec" else "<"
+        clauses.append(
+            "EXISTS (SELECT 1 FROM pv_detections pd "
+            f"WHERE pd.roof_key = {outer}.roof_key AND pd.has_image AND pd.max_score {comparaison} %s)"
+        )
+        params.append(PV_SEUIL)
 
     return clauses, params
 
 
-def _count_prospects(min_kwc=None, city=None, category=None, search=None):
-    clauses, params = _prospects_filter_clauses(min_kwc, city, category, search)
+def _count_prospects(min_kwc=None, city=None, category=None, search=None, equipped=False, pv=None):
+    clauses, params = _prospects_filter_clauses(min_kwc, city, category, search, equipped=equipped, pv=pv)
     pool = _get_db_pool()
     conn = pool.getconn()
     try:
@@ -2167,10 +2260,13 @@ def _count_prospects(min_kwc=None, city=None, category=None, search=None):
         pool.putconn(conn)
 
 
-def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=None, offset=None):
+def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=None, offset=None,
+                     equipped=False, pv=None):
     """Entreprises avec leur potentiel solaire calculé, triées par puissance
     installable décroissante (alimente le tableau de bord commercial)."""
-    clauses, params = _prospects_filter_clauses(min_kwc, city, category, search, alias="c")
+    clauses, params = _prospects_filter_clauses(
+        min_kwc, city, category, search, alias="c", equipped=equipped, pv=pv
+    )
 
     # shared_count : nombre d'entreprises rattachées au même toit. Un toit ne
     # s'équipe qu'une fois, donc un prospect qui partage le sien avec 22 autres
@@ -2187,9 +2283,10 @@ def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=
         )
         SELECT c.id, c.name, c.category, c.address, c.city, c.phone, c.email, c.website,
                c.lon, c.lat, c.roof_area_m2, c.roof_source, c.solar_panels, c.solar_kwc,
-               COALESCE(s.n, 1) AS shared_count
+               COALESCE(s.n, 1) AS shared_count, d.has_image, d.scores
         FROM companies c
         LEFT JOIN shared s ON s.roof_key = c.roof_key
+        LEFT JOIN pv_detections d ON d.roof_key = c.roof_key
         WHERE {' AND '.join(clauses)}
         ORDER BY c.solar_kwc DESC NULLS LAST
     """
@@ -2214,7 +2311,12 @@ def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=
         "lon", "lat", "roof_area_m2", "roof_source", "solar_panels", "solar_kwc",
         "shared_count",
     ]
-    return [dict(zip(columns, row)) for row in rows]
+    prospects = []
+    for row in rows:
+        prospect = dict(zip(columns, row[:len(columns)]))
+        prospect["pv"] = _pv_detection(*row[len(columns):])
+        prospects.append(prospect)
+    return prospects
 
 
 # Seuil au-delà duquel un prospect est considéré comme une cible prioritaire
@@ -2232,11 +2334,12 @@ def _prospects_summary():
                 SELECT
                     count(*),
                     count(*) FILTER (WHERE solar_computed_at IS NOT NULL),
-                    count(*) FILTER (WHERE roof_area_m2 IS NOT NULL)
+                    count(*) FILTER (WHERE roof_area_m2 IS NOT NULL AND equipped_at IS NULL),
+                    count(*) FILTER (WHERE equipped_at IS NOT NULL)
                 FROM companies
                 """
             )
-            total, computed, with_roof = cur.fetchone()
+            total, computed, with_roof, equipped = cur.fetchone()
 
             # Un toit ne s'equipe qu'une fois : agreger par entreprise comptait
             # plusieurs fois les batiments partages (mesure : 16,4% de
@@ -2252,7 +2355,7 @@ def _prospects_summary():
                     SELECT DISTINCT ON (COALESCE(roof_key, 'company:' || id))
                            solar_kwc AS kwc, solar_panels AS panels, roof_area_m2 AS area
                     FROM companies
-                    WHERE roof_area_m2 IS NOT NULL
+                    WHERE roof_area_m2 IS NOT NULL AND equipped_at IS NULL
                     ORDER BY COALESCE(roof_key, 'company:' || id), solar_kwc DESC NULLS LAST
                 ) t
                 """,
@@ -2273,10 +2376,12 @@ def _prospects_summary():
         "avg_roof_area_m2": round(float(avg_area), 1),
         "big_prospects": big,
         "big_prospect_threshold": BIG_PROSPECT_KWC,
+        "equipped": equipped,
     }
 
 
-def _prospect_filter_values(min_kwc=None, city=None, category=None, search=None):
+def _prospect_filter_values(min_kwc=None, city=None, category=None, search=None, equipped=False,
+                            pv=None):
     """Villes et catégories réellement présentes parmi les prospects calculés.
 
     Les filtres étaient deux champs libres : sur 21 villes et plus de cent
@@ -2291,8 +2396,12 @@ def _prospect_filter_values(min_kwc=None, city=None, category=None, search=None)
     plus rien. En incluant son propre filtre, choisir une ville réduirait la
     liste des villes à cette seule ville et on ne pourrait plus en changer.
     """
-    city_clauses, city_params = _prospects_filter_clauses(min_kwc, None, category, search)
-    cat_clauses, cat_params = _prospects_filter_clauses(min_kwc, city, None, search)
+    city_clauses, city_params = _prospects_filter_clauses(
+        min_kwc, None, category, search, equipped=equipped, pv=pv
+    )
+    cat_clauses, cat_params = _prospects_filter_clauses(
+        min_kwc, city, None, search, equipped=equipped, pv=pv
+    )
 
     pool = _get_db_pool()
     conn = pool.getconn()
@@ -2347,6 +2456,8 @@ def api_prospect_filters():
             city=request.args.get("city"),
             category=request.args.get("category"),
             search=request.args.get("search"),
+            equipped=request.args.get("equipped") == "1",
+            pv=request.args.get("pv"),
         )
     )
 
@@ -2365,6 +2476,8 @@ def api_prospects():
         city=request.args.get("city"),
         category=request.args.get("category"),
         search=request.args.get("search"),
+        equipped=request.args.get("equipped") == "1",
+        pv=request.args.get("pv"),
     )
     prospects = _query_prospects(**filters, limit=limit, offset=offset)
     total_filtered = _count_prospects(**filters)
@@ -2387,6 +2500,8 @@ def api_prospects_csv():
         city=request.args.get("city"),
         category=request.args.get("category"),
         search=request.args.get("search"),
+        equipped=request.args.get("equipped") == "1",
+        pv=request.args.get("pv"),
     )
 
     buffer = io.StringIO()
@@ -2396,6 +2511,7 @@ def api_prospects_csv():
             "Nom", "Catégorie", "Adresse", "Ville", "Téléphone", "Email", "Site web",
             "Surface toit (m²)", "Source toit", "Toit partagé", "Entreprises sur ce toit",
             "Panneaux estimés", "Puissance (kWc)", "Latitude", "Longitude",
+            "Panneaux déjà posés (détection)", "Confiance détection",
         ]
     )
     for p in prospects:
@@ -2406,6 +2522,7 @@ def api_prospects_csv():
                 p["email"], p["website"], p["roof_area_m2"], p["roof_source"],
                 "oui" if shared > 1 else "non", shared,
                 p["solar_panels"], p["solar_kwc"], p["lat"], p["lon"],
+                (p["pv"] or {}).get("verdict", "non analysé"), (p["pv"] or {}).get("confiance"),
             ]
         )
 

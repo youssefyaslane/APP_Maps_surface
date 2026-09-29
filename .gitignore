@@ -21,3 +21,10 @@ static/zone_test.png
 
 # Sources d'images non optimisees : seules les versions web sont versionnees
 static/img/vecteezy_*
+
+# Modèles d IA téléchargés (poids lourds, retéléchargeables)
+models/
+
+# Images de toits pour les essais : extraits de l'imagerie Esri, à ne pas
+# redistribuer (le dépôt est public). Elles restent sur la machine.
+tests/panneaux/img/

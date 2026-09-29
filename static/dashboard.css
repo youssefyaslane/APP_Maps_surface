@@ -328,6 +328,49 @@ td.num strong {
   text-decoration: underline;
 }
 
+.row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+/* Discret : le geste retire une ligne de la liste, il ne doit pas voler la
+   vedette au lien « Voir » que l'on utilise sans cesse. */
+.btn-equipped {
+  padding: 3px 9px;
+  border: 1px solid #cfd8dc;
+  border-radius: 6px;
+  background: #fff;
+  color: #546e7a;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.btn-equipped:hover,
+.btn-equipped:focus-visible {
+  border-color: #546e7a;
+  background: #546e7a;
+  color: #fff;
+}
+
+.btn-equipped:disabled { opacity: 0.5; cursor: wait; }
+
+/* Détection automatique des panneaux déjà posés */
+.pv-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pv-yes { color: #8a4b00; background: #ffe3bf; font-weight: 600; }
+.pv-no { color: #2e6b3e; background: #ddebe0; }
+.pv-unknown { color: #78909c; background: #eceff1; }
+
 .pagination {
   display: flex;
   flex-wrap: wrap;

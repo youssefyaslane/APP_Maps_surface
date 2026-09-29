@@ -36,7 +36,11 @@
   <section class="stats" id="stats"></section>
 
   <section class="filters">
-    <input type="text" id="filter-search" placeholder="🔍 Rechercher (nom, adresse)" />
+    <select id="filter-view" aria-label="Affichage">
+      <option value="">Prospects</option>
+      <option value="1">Déjà équipées</option>
+    </select>
+    <input type="text" id="filter-search" placeholder=" Rechercher (nom, adresse)" />
     <select id="filter-city" aria-label="Ville">
       <option value="">Toutes les villes</option>
     </select>
@@ -44,9 +48,15 @@
       <option value="">Toutes les catégories</option>
     </select>
     <input type="number" id="filter-min-kwc" placeholder="Puissance min. (kWc)" min="0" step="10" />
+    <select id="filter-pv" aria-label="Panneaux déjà posés (détection automatique)"
+            title="Détection automatique sur l'image satellite du toit">
+      <option value="">Panneaux : tous</option>
+      <option value="sans">Sans panneaux détectés</option>
+      <option value="avec">Avec panneaux détectés</option>
+    </select>
     <button id="apply-filters">Filtrer</button>
     <button id="reset-filters" class="secondary">Réinitialiser</button>
-    <a id="export-csv" class="btn-export" href="/api/prospects.csv">⬇️ Exporter en CSV</a>
+    <a id="export-csv" class="btn-export" href="/api/prospects.csv"> Exporter en CSV</a>
   </section>
 
   <p class="result-count" id="result-count"></p>
@@ -64,12 +74,13 @@
           <th class="num">Puissance</th>
           <th>Source</th>
           <th>Toit</th>
+          <th title="Panneaux solaires déjà posés, détectés sur l'image satellite">Déjà équipé ?</th>
           <th>Contact</th>
           <th></th>
         </tr>
       </thead>
       <tbody id="prospects-body">
-        <tr><td colspan="11" class="empty">Chargement...</td></tr>
+        <tr><td colspan="12" class="empty">Chargement...</td></tr>
       </tbody>
     </table>
   </section>

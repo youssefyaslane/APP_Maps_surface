@@ -11,7 +11,8 @@ prête ne change rien.
 
 # Ordre de copie : une table n'arrive qu'après celles qu'elle référence
 # (ia_segments.created_by et audit_log.user_id pointent sur users).
-COPY_ORDER = ("users", "companies", "ia_segments", "ms_buildings", "osm_buildings", "audit_log")
+COPY_ORDER = ("users", "companies", "ia_segments", "ms_buildings", "osm_buildings", "audit_log",
+              "pv_detections")
 
 # Sans elles, l'application ne fonctionne pas. osm_buildings est facultative :
 # tant qu'elle est vide ou absente, les bâtiments viennent d'Overpass.
@@ -23,8 +24,9 @@ REQUIRED_TABLES = ("users", "companies", "ia_segments", "ms_buildings", "audit_l
 SERIAL_TABLES = ("users", "companies", "ia_segments", "ms_buildings", "audit_log")
 
 # Clé par laquelle la synchronisation rapproche une ligne de sa copie. `id`
-# partout, sauf pour les bâtiments OSM, identifiés par leur numéro OSM.
-PRIMARY_KEYS = {"osm_buildings": "osm_id"}
+# partout, sauf pour les bâtiments OSM, identifiés par leur numéro OSM, et les
+# détections de panneaux, rattachées au toit.
+PRIMARY_KEYS = {"osm_buildings": "osm_id", "pv_detections": "roof_key"}
 
 
 def primary_key(table):
@@ -51,6 +53,29 @@ def create_osm_buildings(cur):
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_osm_buildings_centroid "
         "ON osm_buildings (centroid_lat, centroid_lon)"
+    )
+
+
+def create_pv_detections(cur):
+    """Panneaux solaires déjà posés, détectés sur l'image satellite du toit
+    (scripts/classer_panneaux.sh, modèle YOLO). Une ligne par toit, pas par
+    entreprise : un toit partagé ne s'examine qu'une fois.
+
+    Toutes les confiances du modèle sont gardées, pas un oui/non figé : le seuil
+    d'affichage (PV_SEUIL dans app.py) peut changer sans relancer la détection.
+    Pas de clé étrangère : roof_key désigne un polygone de trois tables
+    différentes (osm:, ms:, ia:)."""
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pv_detections (
+            roof_key TEXT PRIMARY KEY,
+            has_image BOOLEAN NOT NULL,
+            scores REAL[] NOT NULL DEFAULT '{}',
+            max_score REAL NOT NULL DEFAULT 0,
+            model TEXT NOT NULL,
+            detected_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
     )
 
 
@@ -173,6 +198,17 @@ def create_all(cur):
         "ALTER TABLE ia_segments ADD COLUMN IF NOT EXISTS created_by INTEGER "
         "REFERENCES users(id) ON DELETE SET NULL"
     )
+    # Entreprise déjà équipée de panneaux : elle sort de la liste des
+    # prospects sans être supprimée. Une suppression ne tiendrait pas — le
+    # prochain import la recréerait, puisqu'il reconnaît les entreprises par
+    # leur identifiant Google. Placée après users, qu'elle référence.
+    cur.execute(
+        """
+        ALTER TABLE companies
+            ADD COLUMN IF NOT EXISTS equipped_at TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS equipped_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+        """
+    )
     # Trace qui a créé ou supprimé un toit. Une ligne d'ia_segments
     # disparaît à la suppression et emporterait son auteur avec elle ;
     # cette table existe précisément pour que la suppression, elle,
@@ -197,3 +233,4 @@ def create_all(cur):
     # cible doit recevoir toutes les tables avant la copie. Vide, elle ne
     # change rien au fonctionnement (repli sur Overpass, comme absente).
     create_osm_buildings(cur)
+    create_pv_detections(cur)

@@ -128,8 +128,12 @@ const manualTraceLayer = makeDeletableLayer(
 // est intéressante, ou point GPS mal placé par rapport au bâtiment.
 const COMPANY_WITH_ROOF_STYLE = { color: "#1b5e20", fillColor: "#4caf50" };
 const COMPANY_NO_ROOF_STYLE = { color: "#b71c1c", fillColor: "#ef5350" };
+// Gris : déjà équipée de panneaux, donc plus un prospect. Elle reste sur la
+// carte pour pouvoir être rétablie depuis sa fiche.
+const COMPANY_EQUIPPED_STYLE = { color: "#546e7a", fillColor: "#b0bec5" };
 
 function companyMarkerStyle(props) {
+  if (props.equipped) return COMPANY_EQUIPPED_STYLE;
   return props.has_roof ? COMPANY_WITH_ROOF_STYLE : COMPANY_NO_ROOF_STYLE;
 }
 
@@ -156,7 +160,9 @@ const companiesLayer = L.geoJSON(null, {
       click: (e) => {
         L.DomEvent.stopPropagation(e);
         hideTooltip();
-        openCompanyPanel(feature.properties, layer.getLatLng());
+        // L'identifiant n'est pas dans les propriétés : la fiche en a besoin
+        // pour enregistrer « déjà équipée ».
+        openCompanyPanel({ ...feature.properties, id: feature.id }, layer.getLatLng());
       },
     });
   },
@@ -367,6 +373,7 @@ function showCompanyTooltip(e, props) {
         props.solar_kwc ? ` — ☀️ ${props.solar_kwc.toLocaleString("fr-FR")} kWc` : ""
       }</div>`
     : `<div class="no-roof">⚠️ Aucun toit identifié</div>`;
+  const equipped = props.equipped ? `<div class="equipped">✓ Déjà équipée de panneaux</div>` : "";
   tooltipEl.innerHTML = `
     <div><strong>${escapeHtml(props.name || "Entreprise")}</strong></div>
     ${category}
@@ -374,6 +381,7 @@ function showCompanyTooltip(e, props) {
     ${phone}
     ${rating}
     ${roof}
+    ${equipped}
   `;
   tooltipEl.classList.remove("hidden");
   moveTooltip(e);
@@ -402,6 +410,42 @@ const ROOF_LAYERS = [buildingsLayer, aiDetectedLayer, manualTraceLayer, msBuildi
 let hiddenRoofLayers = [];
 let companyRoofHighlight = null;
 
+// « Déjà équipée » dans la fiche : même geste que dans le tableau de bord.
+// Le marqueur passe au gris (ou revient) dès l'enregistrement.
+function renderEquipped(props) {
+  const box = document.getElementById("company-equipped");
+  if (!box) return;
+  box.innerHTML = `
+    <p class="equipped-note">${
+      props.equipped
+        ? "✓ Déjà équipée de panneaux : retirée de la liste des prospects."
+        : "Cette entreprise a déjà des panneaux solaires ?"
+    }</p>
+    <button type="button" class="equipped-toggle${props.equipped ? " is-equipped" : ""}">${
+      props.equipped ? "Rétablir comme prospect" : "Marquer « déjà équipée »"
+    }</button>
+  `;
+  box.querySelector("button").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const resp = await fetch(`/api/companies/${props.id}/equipped`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ equipped: !props.equipped }),
+      });
+      if (!resp.ok) throw new Error();
+      props.equipped = !props.equipped;
+      renderEquipped(props);
+      refreshCompanyRoofStatus();
+    } catch {
+      btn.disabled = false;
+      setStatus("L'enregistrement a échoué. Réessayez.", true);
+      setTimeout(() => setStatus(null), 2500);
+    }
+  });
+}
+
 function openCompanyPanel(props, latlng) {
   const categoryBadge = props.category
     ? `<span class="field-category">${escapeHtml(props.category)}</span>`
@@ -419,7 +463,9 @@ function openCompanyPanel(props, latlng) {
       <span class="field-icon">🏠</span>
       <span class="field-body"><span class="field-label">Toit</span>Recherche...</span>
     </div>
+    <div class="company-equipped" id="company-equipped"></div>
   `;
+  renderEquipped(props);
   companyPanelEl.classList.remove("hidden");
   if (companyRoofHighlight) {
     map.removeLayer(companyRoofHighlight);

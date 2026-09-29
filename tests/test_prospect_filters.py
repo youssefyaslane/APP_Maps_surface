@@ -60,9 +60,47 @@ def test_un_filtre_vide_est_ignore():
     assert params == []
 
 
+def test_les_entreprises_deja_equipees_sortent_de_la_liste():
+    # Déjà équipée de panneaux, elle n'est plus un prospect : c'est ce filtre,
+    # partagé par la liste, le compteur, les listes déroulantes et l'export,
+    # qui la retire de tous d'un coup.
+    sql, _ = clauses_de()
+    assert "equipped_at IS NULL" in sql
+
+
+def test_la_vue_deja_equipees_ne_montre_qu_elles():
+    sql, params = clauses_de(equipped=True)
+    assert "equipped_at IS NOT NULL" in sql
+    assert "equipped_at IS NULL" not in sql
+    assert params == []
+
+
 def test_une_puissance_minimale_nulle_reste_un_filtre():
     # 0 est une valeur, pas une absence : le code doit distinguer « aucun seuil »
     # (None) de « seuil à zéro ».
     sql, params = clauses_de(min_kwc=0)
     assert "solar_kwc >= %s" in sql
     assert params == [0]
+
+
+def test_le_filtre_panneaux_qualifie_le_toit_meme_sans_alias():
+    # Dans la sous-requête, un roof_key nu serait celui de pv_detections : la
+    # condition deviendrait toujours vraie et le filtre ne filtrerait rien.
+    sql, params = clauses_de(pv="avec")
+    assert "pd.roof_key = companies.roof_key" in sql
+    assert "pd.max_score >= %s" in sql
+    assert params == [app.PV_SEUIL]
+    sql, _ = clauses_de(pv="sans", alias="c")
+    assert "pd.roof_key = c.roof_key" in sql
+    assert "pd.max_score < %s" in sql
+
+
+def test_le_filtre_panneaux_garde_l_ordre_des_parametres():
+    sql, params = clauses_de(min_kwc=100, city="Rabat", pv="avec")
+    assert sql.count("%s") == len(params)
+    assert params == [100, "Rabat", app.PV_SEUIL]
+
+
+def test_une_valeur_de_filtre_panneaux_inconnue_est_ignoree():
+    _, params = clauses_de(pv="peut-être")
+    assert params == []
