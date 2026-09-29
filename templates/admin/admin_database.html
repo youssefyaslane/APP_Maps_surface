@@ -24,7 +24,7 @@
         <div class="user-chip">
           <span class="user-avatar">{{ current_user.display_name[0] | upper }}</span>
           <span class="current-user">{{ current_user.display_name }}</span>
-          <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+          <form method="post" action="{{ url_for('auth.logout') }}" class="logout-form">
             <button type="submit" class="logout-btn">Déconnexion</button>
           </form>
         </div>
@@ -33,7 +33,7 @@
   </header>
 
   <main class="db-main"
-        data-status-url="{{ url_for('admin_database_migration_status') }}"
+        data-status-url="{{ url_for('admin.admin_database_migration_status') }}"
         data-job-state="{{ job.state }}"
         data-job-mode="{{ job.mode or '' }}"
         data-job-target="{{ job.target or '' }}"
@@ -145,19 +145,19 @@ docker compose up -d</code></pre>
               <td class="db-mono">{{ row.created_label }}</td>
               <td>
                 <div class="db-actions">
-                  <button type="button" class="db-btn" data-test="{{ url_for('admin_database_test', config_id=row.id) }}">Tester</button>
+                  <button type="button" class="db-btn" data-test="{{ url_for('admin.admin_database_test', config_id=row.id) }}">Tester</button>
                   {% if not row.is_active %}
-                    <button type="button" class="db-btn db-btn-migrate" data-migrate="{{ url_for('admin_database_migrate', config_id=row.id) }}">Migrer les données</button>
-                    <form method="post" action="{{ url_for('admin_database_activate', config_id=row.id) }}"
+                    <button type="button" class="db-btn db-btn-migrate" data-migrate="{{ url_for('admin.admin_database_migrate', config_id=row.id) }}">Migrer les données</button>
+                    <form method="post" action="{{ url_for('admin.admin_database_activate', config_id=row.id) }}"
                           data-confirm="Faire passer l'application sur « {{ row.label }} » ? Elle travaillera sur cette base telle qu'elle est, sans rien recopier : si la base active contient du travail récent, migrez-le d'abord vers celle-ci.{% if not row.is_env %} Si cette base devient injoignable, une page de secours permettra de revenir à la base du .env.{% endif %}">
                       <button type="submit" class="db-btn db-btn-activate">Activer</button>
                     </form>
                   {% endif %}
                   {% if row.is_env or not row.is_active %}
-                    <button type="button" class="db-btn" data-edit="{{ url_for('admin_database_edit', config_id=row.id) }}">Modifier</button>
+                    <button type="button" class="db-btn" data-edit="{{ url_for('admin.admin_database_edit', config_id=row.id) }}">Modifier</button>
                   {% endif %}
                   {% if not row.is_env and not row.is_active %}
-                    <form method="post" action="{{ url_for('admin_database_delete', config_id=row.id) }}"
+                    <form method="post" action="{{ url_for('admin.admin_database_delete', config_id=row.id) }}"
                           data-confirm="Supprimer la configuration « {{ row.label }} » ? La base elle-même n'est pas touchée : seule son adresse est oubliée.">
                       <button type="submit" class="db-btn db-btn-delete">Supprimer</button>
                     </form>
@@ -173,8 +173,8 @@ docker compose up -d</code></pre>
   </main>
 
   <dialog class="db-dialog" id="db-form-dialog" aria-labelledby="db-form-title">
-    <form method="post" id="db-form" action="{{ url_for('admin_database_add') }}"
-          data-add-url="{{ url_for('admin_database_add') }}">
+    <form method="post" id="db-form" action="{{ url_for('admin.admin_database_add') }}"
+          data-add-url="{{ url_for('admin.admin_database_add') }}">
       <header class="db-dialog-head">
         <h2 id="db-form-title">Ajouter une configuration</h2>
         <button type="button" class="db-close" data-close aria-label="Fermer">×</button>
@@ -273,7 +273,7 @@ docker compose up -d</code></pre>
     <footer class="db-dialog-foot">
       <button type="button" class="db-btn" data-close id="db-migrate-cancel">Fermer</button>
       <button type="button" class="db-btn db-btn-migrate" id="db-migrate-go" hidden>Appliquer</button>
-      <a class="db-btn db-btn-primary" id="db-migrate-reload" href="{{ url_for('admin_database') }}" hidden>Recharger la page</a>
+      <a class="db-btn db-btn-primary" id="db-migrate-reload" href="{{ url_for('admin.admin_database') }}" hidden>Recharger la page</a>
     </footer>
   </dialog>
 

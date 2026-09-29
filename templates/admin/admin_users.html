@@ -23,7 +23,7 @@
         <div class="user-chip">
           <span class="user-avatar">{{ current_user.display_name[0] | upper }}</span>
           <span class="current-user">{{ current_user.display_name }}</span>
-          <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+          <form method="post" action="{{ url_for('auth.logout') }}" class="logout-form">
             <button type="submit" class="logout-btn">Déconnexion</button>
           </form>
         </div>
@@ -88,7 +88,7 @@
               {# Pas de bouton sur sa propre ligne : le serveur refuse de toute
                  façon, autant ne pas proposer un geste voué à l'échec. #}
               {% if u.id != me %}
-                <form method="post" action="{{ url_for('admin_delete_user', user_id=u.id) }}"
+                <form method="post" action="{{ url_for('admin.admin_delete_user', user_id=u.id) }}"
                       data-confirm="Supprimer le compte « {{ u.username }} » ? Ses toits tracés sont conservés, sans auteur.">
                   <button type="submit" class="admin-delete">Supprimer</button>
                 </form>

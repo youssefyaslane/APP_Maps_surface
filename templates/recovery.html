@@ -24,7 +24,7 @@
       {% if since %}<div><dt>Depuis</dt><dd>{{ since }}</dd></div>{% endif %}
     </dl>
 
-    <form method="post" action="{{ url_for('db_recovery_retry') }}">
+    <form method="post" action="{{ url_for('secours.db_recovery_retry') }}">
       <button type="submit" class="recovery-secondary">Réessayer</button>
     </form>
 
@@ -35,7 +35,7 @@
       </p>
     {% else %}
       <div class="recovery-sep"><span>ou</span></div>
-      <form method="post" action="{{ url_for('db_recovery_use_env') }}">
+      <form method="post" action="{{ url_for('secours.db_recovery_use_env') }}">
         <p class="recovery-explain">
           <strong>Revenir à « {{ env_label }} »</strong>, la base du fichier .env.
           Connectez-vous avec un compte administrateur de cette base-là.

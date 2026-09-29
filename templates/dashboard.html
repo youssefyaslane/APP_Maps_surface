@@ -25,7 +25,7 @@
         <div class="user-chip">
           <span class="user-avatar">{{ current_user.display_name[0] | upper }}</span>
           <span class="current-user">{{ current_user.display_name }}</span>
-          <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+          <form method="post" action="{{ url_for('auth.logout') }}" class="logout-form">
             <button type="submit" class="logout-btn">Déconnexion</button>
           </form>
         </div>

@@ -22,9 +22,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, "/app")
-from base import db  # noqa: E402
-from base import schema  # noqa: E402
+sys.path.append("/app")  # code de l'application dans son conteneur ; en fin de liste pour ne rien masquer
+from services import db  # noqa: E402
+from services import schema  # noqa: E402
 from roof_images import fetch_roof, polygon_of  # noqa: E402
 
 

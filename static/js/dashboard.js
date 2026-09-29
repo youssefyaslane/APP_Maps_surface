@@ -118,7 +118,7 @@ function renderRows(prospects, startRank) {
     bodyEl.innerHTML = equippedView
       ? `<tr><td colspan="12" class="empty">Aucune entreprise n'est marquée comme déjà équipée.</td></tr>`
       : `<tr><td colspan="12" class="empty">
-      Aucun prospect ne correspond. Lancez <code>python -m scripts.calcul.compute_solar_potential</code>
+      Aucun prospect ne correspond. Lancez <code>python -m scripts.compute_solar_potential</code>
       pour calculer le potentiel solaire des entreprises.
     </td></tr>`;
     return;

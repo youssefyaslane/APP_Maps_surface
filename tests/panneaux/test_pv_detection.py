@@ -5,24 +5,24 @@ croirait vérifié), ou un toit sans image satellite compté comme sans panneaux
 """
 import json
 
-import app
+from services import prospects
 from scripts.panneaux import importer_panneaux
 
 
 def test_un_toit_pas_encore_analyse_n_a_pas_de_verdict():
-    assert app._pv_detection(None, None) is None
+    assert prospects._pv_detection(None, None) is None
 
 
 def test_sans_image_ce_n_est_ni_oui_ni_non():
-    assert app._pv_detection(False, [])["verdict"] == "pas d'image"
+    assert prospects._pv_detection(False, [])["verdict"] == "pas d'image"
 
 
 def test_le_seuil_decide_du_oui(monkeypatch):
-    monkeypatch.setattr(app, "PV_SEUIL", 0.5)
-    v = app._pv_detection(True, [0.83, 0.61, 0.2])
+    monkeypatch.setattr(prospects, "PV_SEUIL", 0.5)
+    v = prospects._pv_detection(True, [0.83, 0.61, 0.2])
     assert v == {"verdict": "oui", "confiance": 0.83, "nb": 2}
-    assert app._pv_detection(True, [0.3])["verdict"] == "non"
-    assert app._pv_detection(True, [])["verdict"] == "non"
+    assert prospects._pv_detection(True, [0.3])["verdict"] == "non"
+    assert prospects._pv_detection(True, [])["verdict"] == "non"
 
 
 def test_l_import_ne_garde_que_les_toits_de_la_base(tmp_path):

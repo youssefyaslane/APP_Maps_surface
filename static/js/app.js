@@ -607,7 +607,7 @@ const tooltipEl = document.getElementById("tooltip");
 const statusEl = document.getElementById("status");
 const citySelectEl = document.getElementById("city-select");
 
-// Hypothèses d'installation injectées par le serveur (domain/solar.py, via un
+// Hypothèses d'installation injectées par le serveur (services/solar.py, via un
 // script en tête de page) : la carte annonce ainsi exactement la puissance que
 // le tableau de bord a stockée en base, au lieu d'en recalculer une avec ses
 // propres constantes.

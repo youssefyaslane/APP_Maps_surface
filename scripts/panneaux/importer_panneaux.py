@@ -15,11 +15,11 @@ import json
 import os
 import sys
 
-sys.path.insert(0, "/app")
+sys.path.append("/app")  # code de l'application dans son conteneur ; en fin de liste pour ne rien masquer
 from psycopg2.extras import execute_values  # noqa: E402
 
-from base import db  # noqa: E402
-from base import schema  # noqa: E402
+from services import db  # noqa: E402
+from services import schema  # noqa: E402
 
 MODELE = "Cyrille37/solar-panels-IGN-bdortho (yolo26l_solar_panel-s4)"
 LOT = 10

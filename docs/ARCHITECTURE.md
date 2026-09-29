@@ -31,7 +31,7 @@ qui suit découle de leur séparation.
 |---|---:|---|
 | `app.py` | 1 603 | 20 routes, accès base, Overpass, cascade de toits, tableau de bord |
 | `static/js/app.js` | 948 | Carte, calques, segmentation interactive, fiche entreprise |
-| `domain/segmentation.py` | 370 | MobileSAM, cache d'embeddings, sessions interactives |
+| `services/segmentation.py` | 370 | MobileSAM, cache d'embeddings, sessions interactives |
 | `static/js/dashboard.js` | 218 | Tableau de bord |
 | `compute_solar_potential.py` | 170 | Recalcul du potentiel |
 
@@ -129,7 +129,7 @@ c'est une action humaine ponctuelle, pas un traitement de masse.
 app/
   __init__.py          create_app() — assemble les blueprints
   config.py            NOUVEAU — toute la config, par variables d'environnement
-  base/db.py                pool de connexions, schéma, migrations
+  db.py                pool de connexions, schéma, migrations
 
   domain/              ── fonctions pures, aucune I/O ──
     geometry.py        NOUVEAU — surface, point-dans-polygone, centroïde
@@ -266,7 +266,7 @@ L'ordre a changé le 8 septembre 2026 : `ia` est passé devant `osm`. OSM regrou
 souvent plusieurs petits bâtiments en un seul polygone, et retourne alors la
 surface de l'îlot plutôt que celle du bâtiment visé ; une segmentation déclenchée
 au clic vise, elle, un bâtiment précis. Voir `_find_roof_at_point` dans `app.py`
-et `tests/domain/test_roof_priority.py`, qui verrouille cet ordre.
+et `tests/test_roof_priority.py`, qui verrouille cet ordre.
 
 ---
 
@@ -294,7 +294,7 @@ osmium tags-filter zone.pbf w/building -o batiments.pbf
 osmium export batiments.pbf -f geojsonseq -o batiments.geojsonl
 
 # 5. Ingérer, en conservant l'identifiant OSM pour le roof_key
-python -m scripts.donnees.import_osm_buildings batiments.geojsonl
+python -m scripts.import_osm_buildings batiments.geojsonl
 ```
 
 **Deux points d'attention.** Le volume : Casablanca seule compte 47 000 bâtiments
@@ -413,7 +413,7 @@ docker compose
         libgl1 + libglib2.0-0               (requis par opencv-headless)
 
 base    serveur PostgreSQL partagé, hors Docker Compose
-        schéma « solar intelligence »       (connexion dans .env, voir base/db.py)
+        schéma « solar intelligence »       (connexion dans .env, voir services/db.py)
         PostGIS à y installer pour l'étape 5
 ```
 
@@ -449,7 +449,7 @@ exclu de Git.
 L'application et les scripts lisaient `DATABASE_URL` avec deux défauts
 différents (`db:5432` d'un côté, `localhost:5432` de l'autre). Depuis la
 migration vers le serveur partagé (15 septembre 2026), tous passent par
-`base/db.py`, qui fixe aussi le chemin de recherche sur le seul schéma de
+`services/db.py`, qui fixe aussi le chemin de recherche sur le seul schéma de
 l'application.
 
 ---

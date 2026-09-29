@@ -200,7 +200,7 @@ def roofs_to_check(cur):
 # ---------- commandes ----------
 
 def run(limit, dry_run, pause, model, company_ids=None):
-    from base import db
+    from services import db
 
     if not dry_run:
         check_model(model)
@@ -260,7 +260,7 @@ def run(limit, dry_run, pause, model, company_ids=None):
 
 
 def export(path):
-    from base import db
+    from services import db
 
     done = load_done()
     conn = db.connect()

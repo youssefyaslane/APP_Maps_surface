@@ -42,7 +42,7 @@
                 <span class="admin-menu-desc">Accès commercial ou admin</span>
               </span>
             </a>
-            <a class="admin-menu-item" href="{{ url_for('admin_database') }}">
+            <a class="admin-menu-item" href="{{ url_for('admin.admin_database') }}">
               <span class="admin-menu-icon">🗄️</span>
               <span class="admin-menu-text">
                 <span class="admin-menu-title">Base de données</span>
@@ -72,7 +72,7 @@
       <div class="user-chip">
         <span class="user-avatar">{{ current_user.display_name[0] | upper }}</span>
         <span class="current-user">{{ current_user.display_name }}</span>
-        <form method="post" action="{{ url_for('logout') }}" class="logout-form">
+        <form method="post" action="{{ url_for('auth.logout') }}" class="logout-form">
           <button type="submit" class="logout-link">Déconnexion</button>
         </form>
       </div>
@@ -163,7 +163,7 @@
         {% endfor %}
       </div>
       {% else %}
-      <p class="vide">Aucun potentiel calculé pour l'instant. Lancez <code>python -m scripts.calcul.compute_solar_potential</code>.</p>
+      <p class="vide">Aucun potentiel calculé pour l'instant. Lancez <code>python -m scripts.compute_solar_potential</code>.</p>
       {% endif %}
     </section>
 
