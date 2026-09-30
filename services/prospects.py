@@ -127,16 +127,20 @@ def _set_company_equipped(company_id, equipped, user_id):
 PV_SEUIL = float(os.environ.get("PV_SEUIL", "0.25"))
 
 
-def _pv_detection(has_image, scores):
-    """Verdict affiché pour un toit ; None s'il n'a pas encore été analysé."""
+def _pv_detection(has_image, scores, dark_score=0.0):
+    """Verdict affiché pour un toit ; None s'il n'a pas encore été analysé.
+
+    « oui » : un panneau détecté ET assez sombre pour en être un (dark_score) ;
+    « non » sinon. Une détection trop claire (tôle, verrière) compte donc comme
+    « non » : la règle écarte ainsi la plupart des erreurs du modèle, au prix de
+    manquer de vrais panneaux qui paraissent clairs sur l'image."""
     if has_image is None:
         return None
     if not has_image:
         return {"verdict": "pas d'image", "confiance": None, "nb": 0}
-    scores = scores or []
-    nb = sum(1 for sc in scores if sc >= PV_SEUIL)
-    return {"verdict": "oui" if nb else "non",
-            "confiance": round(max(scores), 2) if scores else 0.0, "nb": nb}
+    confirme = (dark_score or 0.0) >= PV_SEUIL
+    nb = sum(1 for sc in (scores or []) if sc >= PV_SEUIL) if confirme else 0
+    return {"verdict": "oui" if confirme else "non", "confiance": round(dark_score or 0.0, 2), "nb": nb}
 
 
 def _prospects_filter_clauses(min_kwc=None, city=None, category=None, search=None, alias="",
@@ -148,8 +152,9 @@ def _prospects_filter_clauses(min_kwc=None, city=None, category=None, search=Non
     elles sortent de la liste, des filtres et de l'export. `equipped=True`
     donne la vue inverse, celle d'où l'on peut les rétablir.
 
-    `pv` filtre sur la détection automatique : "avec" (panneaux détectés) ou
-    "sans" (toit analysé, rien au-dessus du seuil). Les toits pas encore
+    `pv` filtre sur la détection automatique : "avec" (panneaux détectés et
+    confirmés par la règle des pixels sombres) ou "sans" (toit analysé, rien
+    de confirmé). Les toits pas encore
     analysés ou sans image ne sortent que sans ce filtre."""
     p = f"{alias}." if alias else ""
     clauses = [
@@ -184,7 +189,7 @@ def _prospects_filter_clauses(min_kwc=None, city=None, category=None, search=Non
         comparaison = ">=" if pv == "avec" else "<"
         clauses.append(
             "EXISTS (SELECT 1 FROM pv_detections pd "
-            f"WHERE pd.roof_key = {outer}.roof_key AND pd.has_image AND pd.max_score {comparaison} %s)"
+            f"WHERE pd.roof_key = {outer}.roof_key AND pd.has_image AND pd.dark_score {comparaison} %s)"
         )
         params.append(PV_SEUIL)
 
@@ -226,7 +231,7 @@ def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=
         )
         SELECT c.id, c.name, c.category, c.address, c.city, c.phone, c.email, c.website,
                c.lon, c.lat, c.roof_area_m2, c.roof_source, c.solar_panels, c.solar_kwc,
-               COALESCE(s.n, 1) AS shared_count, d.has_image, d.scores
+               COALESCE(s.n, 1) AS shared_count, d.has_image, d.scores, d.dark_score
         FROM companies c
         LEFT JOIN shared s ON s.roof_key = c.roof_key
         LEFT JOIN pv_detections d ON d.roof_key = c.roof_key

@@ -77,6 +77,10 @@ def create_pv_detections(cur):
         )
         """
     )
+    # Meilleure confiance parmi les cadres assez sombres pour être des panneaux
+    # (règle dans scripts/panneaux/classer_panneaux_yolo.py). Détecté mais non
+    # confirmé par cette règle : le toit s'affiche « Non ».
+    cur.execute("ALTER TABLE pv_detections ADD COLUMN IF NOT EXISTS dark_score REAL NOT NULL DEFAULT 0")
 
 
 def create_all(cur):

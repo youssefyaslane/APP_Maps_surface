@@ -19,19 +19,27 @@ def test_sans_image_ce_n_est_ni_oui_ni_non():
 
 def test_le_seuil_decide_du_oui(monkeypatch):
     monkeypatch.setattr(prospects, "PV_SEUIL", 0.5)
-    v = prospects._pv_detection(True, [0.83, 0.61, 0.2])
+    v = prospects._pv_detection(True, [0.83, 0.61, 0.2], 0.83)
     assert v == {"verdict": "oui", "confiance": 0.83, "nb": 2}
-    assert prospects._pv_detection(True, [0.3])["verdict"] == "non"
-    assert prospects._pv_detection(True, [])["verdict"] == "non"
+    assert prospects._pv_detection(True, [0.3], 0.3)["verdict"] == "non"
+    assert prospects._pv_detection(True, [], 0.0)["verdict"] == "non"
+
+
+def test_detecte_mais_trop_clair_compte_comme_non(monkeypatch):
+    # Règle des pixels sombres : une détection claire (tôle, verrière) est
+    # écartée, même avec une forte confiance du modèle.
+    monkeypatch.setattr(prospects, "PV_SEUIL", 0.25)
+    for sombre in (0.0, 0.1, None):
+        assert prospects._pv_detection(True, [0.83], sombre) == {"verdict": "non", "confiance": round(sombre or 0.0, 2), "nb": 0}
 
 
 def test_l_import_ne_garde_que_les_toits_de_la_base(tmp_path):
     journal = tmp_path / "resultats.jsonl"
     journal.write_text("\n".join([
-        json.dumps({"cle": "osm:12", "panneaux": "oui", "scores": [0.4, 0.9]}),
+        json.dumps({"cle": "osm:12", "panneaux": "oui", "scores": [0.4, 0.9], "confiance_sombre": 0.9}),
         json.dumps({"cle": "ms:7", "panneaux": "pas d'image", "scores": []}),
         json.dumps({"cle": "batifer_avec_panneaux.jpg", "panneaux": "oui", "scores": [0.8]}),
         '{"cle": "ia:3", "panneaux": "no',  # ligne coupée par un arrêt brutal
     ]), encoding="utf-8")
     toits = importer_panneaux.lire(journal)
-    assert toits == {"osm:12": (True, [0.9, 0.4]), "ms:7": (False, [])}
+    assert toits == {"osm:12": (True, [0.9, 0.4], 0.9), "ms:7": (False, [], 0.0)}

@@ -8,8 +8,9 @@ sortie standard, vers le classificateur YOLO, dans ce format :
 Les messages d'avancement vont sur la sortie d'erreur.
 
 Par défaut, seuls les toits pas encore dans pv_detections sont envoyés (reprise
-après interruption). --tout les renvoie tous.
-Usage : python extraire_toits_panneaux.py [--tout] [--workers 4]
+après interruption). --tout les renvoie tous ; --detectes ne renvoie que ceux
+où le modèle a déjà vu quelque chose (pour réappliquer des règles modifiées).
+Usage : python extraire_toits_panneaux.py [--tout | --detectes] [--workers 4]
 """
 import argparse
 import io
@@ -32,13 +33,16 @@ def log(msg):
     print(msg, file=sys.stderr, flush=True)
 
 
-def load_roofs(tout):
+def load_roofs(tout, detectes=False):
     """[(roof_key, qui, polygone)] du plus puissant au plus petit."""
     conn = db.connect()
     try:
         with conn, conn.cursor() as cur:
             schema.create_pv_detections(cur)
-            deja = "" if tout else "AND roof_key NOT IN (SELECT roof_key FROM pv_detections)"
+            if detectes:
+                deja = "AND roof_key IN (SELECT roof_key FROM pv_detections WHERE cardinality(scores) > 0)"
+            else:
+                deja = "" if tout else "AND roof_key NOT IN (SELECT roof_key FROM pv_detections)"
             cur.execute(f"""
                 SELECT roof_key, max(solar_kwc) AS kwc,
                        array_agg(name ORDER BY solar_kwc DESC NULLS LAST, id) AS noms
@@ -55,8 +59,8 @@ def load_roofs(tout):
         conn.close()
 
 
-def main(tout, workers):
-    roofs = [r for r in load_roofs(tout) if r[2]]
+def main(tout, workers, detectes=False):
+    roofs = [r for r in load_roofs(tout, detectes) if r[2]]
     log(f"{len(roofs)} toit(s) à analyser.")
     out = sys.stdout.buffer
     session = requests.Session()
@@ -90,9 +94,10 @@ def main(tout, workers):
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--tout", action="store_true", help="réanalyser aussi les toits déjà en base")
+    p.add_argument("--detectes", action="store_true", help="seulement les toits avec des détections en base")
     p.add_argument("--workers", type=int, default=4)
     a = p.parse_args()
     try:
-        main(a.tout, a.workers)
+        main(a.tout, a.workers, a.detectes)
     except BrokenPipeError:
         sys.exit(1)  # le classificateur s'est arrêté : pas la peine de continuer

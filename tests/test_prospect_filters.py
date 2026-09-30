@@ -88,11 +88,11 @@ def test_le_filtre_panneaux_qualifie_le_toit_meme_sans_alias():
     # condition deviendrait toujours vraie et le filtre ne filtrerait rien.
     sql, params = clauses_de(pv="avec")
     assert "pd.roof_key = companies.roof_key" in sql
-    assert "pd.max_score >= %s" in sql
+    assert "pd.dark_score >= %s" in sql
     assert params == [prospects.PV_SEUIL]
     sql, _ = clauses_de(pv="sans", alias="c")
     assert "pd.roof_key = c.roof_key" in sql
-    assert "pd.max_score < %s" in sql
+    assert "pd.dark_score < %s" in sql
 
 
 def test_le_filtre_panneaux_garde_l_ordre_des_parametres():
@@ -104,3 +104,4 @@ def test_le_filtre_panneaux_garde_l_ordre_des_parametres():
 def test_une_valeur_de_filtre_panneaux_inconnue_est_ignoree():
     _, params = clauses_de(pv="peut-être")
     assert params == []
+

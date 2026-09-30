@@ -22,6 +22,8 @@ Deux usages :
       essai sur des images (tests/panneaux/img) : si le nom contient
       « avec_panneaux » ou « sans_panneaux », la réponse est notée.
 
+Un toit est « oui » si au moins un cadre détecté passe la règle des pixels
+sombres (voir confirmes), « non » sinon.
 Le verdict affiché utilise SEUIL (0,25, choisi en vérifiant à l'œil les toits
 de chaque tranche de confiance) ; toutes les confiances sont transmises, pour
 que le seuil puisse changer sans relancer la détection.
@@ -94,12 +96,49 @@ def dans_contour(cadres, contour, taille):
     return garde
 
 
+# Règle maison contre les fausses détections : un panneau est sombre. Un cadre
+# « confirmé » a au moins PART_SOMBRE de ses pixels plus sombres que
+# max(90, 0,62 x luminosité médiane du toit) — le second terme rattrape les
+# images surexposées, où des panneaux paraissent gris moyen sur un toit très
+# clair (Batifer). Réglée sur les 20 toits détectés, vérifiés à l'œil : elle
+# garde 12 vrais sur 13 et écarte 5 erreurs sur 7 (tôle claire, verrière
+# claire), mais la marge est mince et elle laisse passer un stade et un dôme
+# vitré, sombres eux aussi. Un toit détecté mais non confirmé est « non » ;
+# ses confiances brutes restent en base (scores), pour pouvoir revoir la règle.
+PART_SOMBRE = 0.45
+LUM_SOMBRE = 90.0
+LUM_RELATIVE = 0.62
+
+
+def confirmes(img, contour, cadres):
+    """Les cadres assez sombres pour être des panneaux."""
+    if not cadres:
+        return []
+    lum = np.asarray(img, dtype=np.float32).mean(axis=2)
+    if contour:
+        masque = Image.new("L", img.size, 0)
+        ImageDraw.Draw(masque).polygon([tuple(p) for p in contour], fill=1)
+        toit = np.array(masque, dtype=bool)
+    else:
+        toit = np.ones(lum.shape, dtype=bool)
+    seuil = max(LUM_SOMBRE, LUM_RELATIVE * float(np.median(lum[toit]))) if toit.any() else LUM_SOMBRE
+    garde = []
+    for cadre in cadres:
+        x0, y0, x1, y1 = max(int(cadre[0]), 0), max(int(cadre[1]), 0), min(int(cadre[2]), img.width), min(int(cadre[3]), img.height)
+        if x1 > x0 and y1 > y0 and float((lum[y0:y1, x0:x1] < seuil).mean()) >= PART_SOMBRE:
+            garde.append(cadre)
+    return garde
+
+
 def verdict(model, img, contour):
     cadres = dans_contour(detect(model, img), contour, img.size)
     scores = sorted((round(c[4], 3) for c in cadres), reverse=True)
+    sombres = sorted((round(c[4], 3) for c in confirmes(img, contour, cadres)), reverse=True)
     nb = sum(1 for sc in scores if sc >= SEUIL)
-    return {"panneaux": "oui" if nb else "non", "nb": nb,
-            "confiance": scores[0] if scores else 0.0, "scores": scores}
+    oui = any(sc >= SEUIL for sc in sombres)
+    return {"panneaux": "oui" if oui else "non", "nb": nb if oui else 0,
+            "confiance": sombres[0] if sombres else 0.0,
+            "scores": scores, "confiance_sombre": sombres[0] if sombres else 0.0}
 
 
 def lire_exactement(flux, n):
@@ -125,7 +164,7 @@ def flux(model):
             img = Image.open(io.BytesIO(lire_exactement(entree, taille))).convert("RGB")
             r = verdict(model, img, entete["contour"])
         else:
-            r = {"panneaux": "pas d'image", "nb": 0, "confiance": 0.0, "scores": []}
+            r = {"panneaux": "pas d'image", "nb": 0, "confiance": 0.0, "scores": [], "confiance_sombre": 0.0}
         r["cle"] = entete["cle"]
         sortie.write(json.dumps(r) + "\n")
         sortie.flush()

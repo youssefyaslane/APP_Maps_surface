@@ -51,7 +51,7 @@ function pvBadge(pv) {
   if (pv.verdict === "oui") {
     return `<span class="pv-badge pv-yes" title="${fmt(pv.nb)} panneau(x) détecté(s), confiance max ${conf}">Oui</span>`;
   }
-  return `<span class="pv-badge pv-no" title="Aucun panneau au-dessus du seuil (confiance max ${conf})">Non</span>`;
+  return `<span class="pv-badge pv-no" title="Aucun panneau confirmé sur ce toit">Non</span>`;
 }
 
 function currentFilters() {

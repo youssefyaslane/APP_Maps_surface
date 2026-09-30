@@ -27,7 +27,7 @@ PV_SEUIL = float(os.environ.get("PV_SEUIL", "0.25"))
 
 
 def ligne_toit(texte):
-    """(roof_key, has_image, scores) ou None pour une ligne à ignorer."""
+    """(roof_key, has_image, scores, confiance_sombre) ou None pour une ligne à ignorer."""
     try:
         r = json.loads(texte)
         cle = r["cle"]
@@ -36,7 +36,7 @@ def ligne_toit(texte):
     if ":" not in cle:  # une image d'essai, pas un toit de la base
         return None
     scores = sorted((float(s) for s in r.get("scores", [])), reverse=True)
-    return cle, r.get("panneaux") != "pas d'image", scores
+    return cle, r.get("panneaux") != "pas d'image", scores, float(r.get("confiance_sombre", 0.0))
 
 
 def lire(chemin):
@@ -54,14 +54,14 @@ def enregistrer(cur, toits):
     execute_values(
         cur,
         """
-        INSERT INTO pv_detections (roof_key, has_image, scores, max_score, model)
+        INSERT INTO pv_detections (roof_key, has_image, scores, max_score, dark_score, model)
         VALUES %s
         ON CONFLICT (roof_key) DO UPDATE SET
-            has_image = EXCLUDED.has_image, scores = EXCLUDED.scores,
-            max_score = EXCLUDED.max_score, model = EXCLUDED.model, detected_at = now()
+            has_image = EXCLUDED.has_image, scores = EXCLUDED.scores, max_score = EXCLUDED.max_score,
+            dark_score = EXCLUDED.dark_score, model = EXCLUDED.model, detected_at = now()
         """,
-        [(cle, has_image, scores, max(scores, default=0.0), MODELE) for cle, has_image, scores in toits],
-        template="(%s, %s, %s::real[], %s, %s)",
+        [(cle, has_image, scores, max(scores, default=0.0), sombre, MODELE) for cle, has_image, scores, sombre in toits],
+        template="(%s, %s, %s::real[], %s, %s, %s)",
     )
 
 
@@ -69,8 +69,8 @@ def bilan(cur):
     cur.execute(
         """
         SELECT count(*),
-               count(*) FILTER (WHERE has_image AND max_score >= %(s)s),
-               count(*) FILTER (WHERE has_image AND max_score < %(s)s),
+               count(*) FILTER (WHERE has_image AND dark_score >= %(s)s),
+               count(*) FILTER (WHERE has_image AND dark_score < %(s)s),
                count(*) FILTER (WHERE NOT has_image)
         FROM pv_detections
         """,
@@ -81,10 +81,10 @@ def bilan(cur):
     toits = cur.fetchone()[0]
     cur.execute(
         """
-        SELECT c.name, c.city, round(d.max_score::numeric, 2)
+        SELECT c.name, c.city, round(d.dark_score::numeric, 2)
         FROM pv_detections d JOIN companies c ON c.roof_key = d.roof_key
-        WHERE d.has_image AND d.max_score >= %s
-        ORDER BY d.max_score DESC, c.solar_kwc DESC NULLS LAST LIMIT 15
+        WHERE d.has_image AND d.dark_score >= %s
+        ORDER BY d.dark_score DESC, c.solar_kwc DESC NULLS LAST LIMIT 15
         """,
         (PV_SEUIL,),
     )

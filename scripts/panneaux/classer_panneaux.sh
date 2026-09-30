@@ -3,6 +3,8 @@
 #
 #   bash scripts/panneaux/classer_panneaux.sh           # les toits pas encore analysés
 #   bash scripts/panneaux/classer_panneaux.sh --tout    # réanalyse tous les toits
+#   bash scripts/panneaux/classer_panneaux.sh --detectes  # seulement les toits déjà détectés
+#                                                          (après un changement de règle)
 #
 # Trois programmes reliés par un tuyau ; aucune image n'est écrite sur le disque :
 #   1. extraire_toits_panneaux.py   (conteneur de l'application : base + Esri)
@@ -19,7 +21,7 @@ set -euo pipefail
 RACINE="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$RACINE"
 TOUT=()
-[ "${1:-}" = "--tout" ] && TOUT=(--tout)
+case "${1:-}" in --tout|--detectes) TOUT=("$1") ;; esac
 
 source "$RACINE/scripts/panneaux/yolo_conteneur.sh"
 yolo_demarrer
