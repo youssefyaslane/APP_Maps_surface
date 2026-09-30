@@ -7,8 +7,8 @@ sortie standard, vers le classificateur YOLO, dans ce format :
     puis, si "image" est vrai, 4 octets (taille, gros-boutiste) et le JPEG.
 Les messages d'avancement vont sur la sortie d'erreur.
 
-Par défaut, seuls les toits pas encore dans pv_detections sont envoyés (reprise
-après interruption). --tout les renvoie tous ; --detectes ne renvoie que ceux
+Par défaut, seuls les toits pas encore analysés, ou restés sans image, sont
+envoyés (reprise après interruption). --tout les renvoie tous ; --detectes ne renvoie que ceux
 où le modèle a déjà vu quelque chose (pour réappliquer des règles modifiées).
 Usage : python extraire_toits_panneaux.py [--tout | --detectes] [--workers 4]
 """
@@ -42,7 +42,8 @@ def load_roofs(tout, detectes=False):
             if detectes:
                 deja = "AND roof_key IN (SELECT roof_key FROM pv_detections WHERE cardinality(scores) > 0)"
             else:
-                deja = "" if tout else "AND roof_key NOT IN (SELECT roof_key FROM pv_detections)"
+                # Les toits restés sans image sont retentés : Esri en publie de nouvelles.
+                deja = "" if tout else "AND roof_key NOT IN (SELECT roof_key FROM pv_detections WHERE has_image)"
             cur.execute(f"""
                 SELECT roof_key, max(solar_kwc) AS kwc,
                        array_agg(name ORDER BY solar_kwc DESC NULLS LAST, id) AS noms
