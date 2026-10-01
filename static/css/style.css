@@ -906,3 +906,30 @@ body.rail-closed .status { left: 50%; }
 
   .company-panel { padding: 26px 20px; }
 }
+
+/* Placement des panneaux sur le toit (fiche entreprise) */
+.btn-layout {
+  display: block;
+  margin-top: 6px;
+  padding: 4px 10px;
+  border: 1px solid #1e88e5;
+  border-radius: 6px;
+  background: #fff;
+  color: #0d47a1;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.btn-layout:hover { background: #1e88e5; color: #fff; }
+.btn-layout:disabled { opacity: 0.6; cursor: wait; }
+.layout-result { display: block; margin-top: 6px; font-size: 12.5px; color: #0d47a1; }
+.layout-count { display: block; font-weight: 600; }
+.layout-slider { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.layout-slider input[type="range"] { flex: 1; min-width: 0; accent-color: #1e88e5; }
+.layout-step {
+  width: 26px; height: 26px; flex: none;
+  border: 1px solid #1e88e5; border-radius: 50%;
+  background: #fff; color: #0d47a1; font: inherit; font-weight: 700; line-height: 1; cursor: pointer;
+}
+.layout-step:hover { background: #1e88e5; color: #fff; }
+.layout-note { display: block; margin-top: 4px; color: #78909c; font-size: 11.5px; }

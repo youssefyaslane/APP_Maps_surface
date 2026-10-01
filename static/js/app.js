@@ -471,6 +471,7 @@ function openCompanyPanel(props, latlng) {
     map.removeLayer(companyRoofHighlight);
     companyRoofHighlight = null;
   }
+  clearPanelLayout();
   isolateRoofLayers();
   loadCompanyRoof(latlng);
 }
@@ -482,6 +483,7 @@ function isolateRoofLayers() {
 }
 
 function restoreRoofLayers() {
+  clearPanelLayout();
   hiddenRoofLayers.forEach((layer) => map.addLayer(layer));
   hiddenRoofLayers = [];
   if (companyRoofHighlight) {
@@ -508,7 +510,10 @@ async function loadCompanyRoof(latlng) {
       ? ` — ☀️ ~${solar.nPanels} panneau(x) (${solar.capacityKWc.toLocaleString("fr-FR")} kWc)`
       : "";
     roofFieldEl.querySelector(".field-body").innerHTML =
-      `<span class="field-label">Toit</span>${data.area_m2.toLocaleString("fr-FR")} m²${solarText}`;
+      `<span class="field-label">Toit</span>${data.area_m2.toLocaleString("fr-FR")} m²${solarText}` +
+      `<button type="button" class="btn-layout" id="btn-layout">☀️ Placer les panneaux</button>` +
+      `<span class="layout-result" id="layout-result"></span>`;
+    document.getElementById("btn-layout").addEventListener("click", () => togglePanelLayout(latlng));
 
     if (data.polygon && data.polygon.length >= 3) {
       const latlngs = data.polygon.map(([lon, lat]) => [lat, lon]);
@@ -521,6 +526,145 @@ async function loadCompanyRoof(latlng) {
     }
   } catch (err) {
     if (roofFieldEl) roofFieldEl.remove();
+  }
+}
+
+// Panneaux posés sur le toit de l'entreprise ouverte (calcul côté serveur).
+// Canvas plutôt que SVG : un grand toit en porte plusieurs milliers.
+// La barre règle combien on en garde : les panneaux s'ajoutent rangée par
+// rangée, dans l'ordre renvoyé par le serveur.
+let panelLayoutLayer = null;
+let panelLayers = [];
+let panelsShown = 0;
+// Grands toits : une forme par rangée de panneaux contigus, au lieu d'une par
+// panneau (voir services/calepinage.py). La rangée coupée par la barre est
+// redessinée à la bonne longueur.
+let panelRows = [];
+let partialRowLayer = null;
+const panelRenderer = L.canvas({ padding: 0.2 });
+const PANEL_STYLE = {
+  renderer: panelRenderer, color: "#0d47a1", weight: 0.6, fillColor: "#1e88e5", fillOpacity: 0.85,
+  interactive: false,
+};
+
+function clearPanelLayout() {
+  if (panelLayoutLayer) {
+    map.removeLayer(panelLayoutLayer);
+    panelLayoutLayer = null;
+  }
+  panelLayers = [];
+  panelRows = [];
+  partialRowLayer = null;
+  panelsShown = 0;
+}
+
+function showPanels(n) {
+  if (!panelLayoutLayer) return;
+  if (panelRows.length) {
+    showRows(n);
+    return;
+  }
+  // N'ajoute ou ne retire que la différence : déplacer la barre sur un toit
+  // de 5 000 panneaux ne doit pas tout redessiner à chaque cran.
+  n = Math.max(0, Math.min(n, panelLayers.length));
+  for (let i = panelsShown; i < n; i++) panelLayoutLayer.addLayer(panelLayers[i]);
+  for (let i = panelsShown - 1; i >= n; i--) panelLayoutLayer.removeLayer(panelLayers[i]);
+  panelsShown = n;
+}
+
+function showRows(n) {
+  if (partialRowLayer) {
+    panelLayoutLayer.removeLayer(partialRowLayer);
+    partialRowLayer = null;
+  }
+  let debut = 0;
+  for (const row of panelRows) {
+    const pleine = debut + row.n <= n;
+    if (pleine !== row.visible) {
+      if (pleine) panelLayoutLayer.addLayer(row.layer);
+      else panelLayoutLayer.removeLayer(row.layer);
+      row.visible = pleine;
+    }
+    if (!pleine && debut < n) {
+      const m = n - debut;
+      const [c0, , , c3] = row.coins;
+      const avance = (c) => [c[0] + row.pas[0] * m, c[1] + row.pas[1] * m];
+      partialRowLayer = L.polygon([c0, avance(c0), avance(c3), c3], PANEL_STYLE);
+      panelLayoutLayer.addLayer(partialRowLayer);
+    }
+    debut += row.n;
+  }
+  panelsShown = n;
+}
+
+function renderPanelControls(out, total, kwParPanneau, dessines) {
+  const fmtN = (n) => n.toLocaleString("fr-FR");
+  const fmtK = (n) => (Math.round(n * kwParPanneau * 10) / 10).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
+  out.innerHTML = `
+    <span class="layout-count" id="layout-count"></span>
+    <span class="layout-slider">
+      <button type="button" class="layout-step" data-step="-1" aria-label="Retirer un panneau">−</button>
+      <input type="range" id="layout-range" min="0" max="${total}" value="${total}" step="1"
+             aria-label="Nombre de panneaux posés" />
+      <button type="button" class="layout-step" data-step="1" aria-label="Ajouter un panneau">+</button>
+    </span>
+    ${dessines ? "" : `<span class="layout-note">Grand toit : panneaux dessinés par rangées.</span>`}`;
+  const range = out.querySelector("#layout-range");
+  const count = out.querySelector("#layout-count");
+  let attente = null;
+  const appliquer = () => {
+    const n = Number(range.value);
+    count.textContent = `${fmtN(n)} / ${fmtN(total)} panneaux — ${fmtK(n)} kWc`;
+    if (attente) cancelAnimationFrame(attente);
+    attente = requestAnimationFrame(() => showPanels(n));
+  };
+  range.addEventListener("input", appliquer);
+  out.querySelectorAll(".layout-step").forEach((b) =>
+    b.addEventListener("click", () => {
+      range.value = Math.max(0, Math.min(total, Number(range.value) + Number(b.dataset.step)));
+      appliquer();
+    })
+  );
+  appliquer();
+}
+
+async function togglePanelLayout(latlng) {
+  const btn = document.getElementById("btn-layout");
+  const out = document.getElementById("layout-result");
+  if (!btn || !out) return;
+  if (panelLayoutLayer || out.dataset.ouvert) {
+    clearPanelLayout();
+    btn.textContent = "☀️ Placer les panneaux";
+    out.textContent = "";
+    delete out.dataset.ouvert;
+    return;
+  }
+  btn.disabled = true;
+  out.textContent = "Calcul…";
+  try {
+    const params = new URLSearchParams({ lon: latlng.lng, lat: latlng.lat });
+    const resp = await fetch(`/api/roof_layout?${params.toString()}`);
+    const data = await resp.json();
+    if (!document.getElementById("layout-result")) return; // panneau fermé entre-temps
+    if (!resp.ok) {
+      out.textContent = data.error || "Placement impossible";
+      return;
+    }
+    if (!data.panneaux) {
+      out.textContent = "Toit trop petit pour poser des panneaux";
+      return;
+    }
+    panelLayers = data.formes.map((p) => L.polygon(p, PANEL_STYLE));
+    panelRows = (data.rangees || []).map((r) => ({ ...r, layer: L.polygon(r.coins, PANEL_STYLE), visible: false }));
+    panelLayoutLayer = L.layerGroup().addTo(map);
+    panelsShown = 0;
+    out.dataset.ouvert = "1";
+    btn.textContent = "Masquer les panneaux";
+    renderPanelControls(out, data.panneaux, data.kwc / data.panneaux, data.dessines);
+  } catch (err) {
+    out.textContent = "Erreur réseau";
+  } finally {
+    btn.disabled = false;
   }
 }
 
