@@ -53,12 +53,14 @@ const satelliteLayer = L.tileLayer(
 
 streetLayer.addTo(map);
 
+// Toits remplis à 20 % : le contour reste lisible et l'image satellite (et
+// les panneaux posés) restent visibles dessous.
 const buildingsLayer = L.geoJSON(null, {
   style: () => ({
     color: "#2e7d32",
     weight: 1,
     fillColor: "#66bb6a",
-    fillOpacity: 0.45,
+    fillOpacity: 0.2,
   }),
   onEachFeature: (feature, layer) => {
     layer.on({
@@ -80,7 +82,7 @@ const msBuildingsLayer = L.geoJSON(null, {
     color: "#7b1fa2",
     weight: 1,
     fillColor: "#ce93d8",
-    fillOpacity: 0.4,
+    fillOpacity: 0.2,
   }),
   onEachFeature: (feature, layer) => {
     layer.on({
@@ -115,11 +117,11 @@ function makeDeletableLayer(style, name) {
 }
 
 const aiDetectedLayer = makeDeletableLayer(
-  { color: "#ff5252", weight: 2, dashArray: "6 4", fillColor: "#ff8a80", fillOpacity: 0.35 },
+  { color: "#ff5252", weight: 2, dashArray: "6 4", fillColor: "#ff8a80", fillOpacity: 0.2 },
   "Bâtiment détecté par IA"
 );
 const manualTraceLayer = makeDeletableLayer(
-  { color: "#2979ff", weight: 2, dashArray: "6 4", fillColor: "#82b1ff", fillOpacity: 0.35 },
+  { color: "#2979ff", weight: 2, dashArray: "6 4", fillColor: "#82b1ff", fillOpacity: 0.2 },
   "Toit tracé manuellement"
 );
 
@@ -521,7 +523,7 @@ async function loadCompanyRoof(latlng) {
         color: "#ffd54f",
         weight: 3,
         fillColor: "#ffd54f",
-        fillOpacity: 0.4,
+        fillOpacity: 0.2,
       }).addTo(map);
     }
   } catch (err) {
@@ -542,15 +544,27 @@ let panelsShown = 0;
 let panelRows = [];
 let partialRowLayer = null;
 const panelRenderer = L.canvas({ padding: 0.2 });
+// Bleu foncé et opaque, comme de vrais panneaux, avec un liseré clair qui
+// sépare chaque panneau et le détache des toits clairs comme des toits sombres.
 const PANEL_STYLE = {
-  renderer: panelRenderer, color: "#0d47a1", weight: 0.6, fillColor: "#1e88e5", fillOpacity: 0.85,
+  renderer: panelRenderer, color: "#bbdefb", weight: 1, fillColor: "#0b3d91", fillOpacity: 1,
   interactive: false,
 };
+
+// Zoomé de près sur un grand toit, les rangées visibles sont redécoupées en
+// panneaux, pour les voir un par un sans dessiner les 40 000 d'un coup.
+const PANEL_DETAIL_ZOOM = 19;
+const PANEL_DETAIL_MAX = 4000;
+let panelDetailLayer = null;
 
 function clearPanelLayout() {
   if (panelLayoutLayer) {
     map.removeLayer(panelLayoutLayer);
     panelLayoutLayer = null;
+  }
+  if (panelDetailLayer) {
+    map.removeLayer(panelDetailLayer);
+    panelDetailLayer = null;
   }
   panelLayers = [];
   panelRows = [];
@@ -558,10 +572,33 @@ function clearPanelLayout() {
   panelsShown = 0;
 }
 
+function refreshPanelDetail() {
+  if (!panelRows.length) return;
+  if (!panelDetailLayer) panelDetailLayer = L.layerGroup().addTo(map);
+  panelDetailLayer.clearLayers();
+  if (map.getZoom() < PANEL_DETAIL_ZOOM) return;
+  const vue = map.getBounds().pad(0.1);
+  let debut = 0;
+  let dessines = 0;
+  for (const row of panelRows) {
+    const k = Math.max(0, Math.min(row.n, panelsShown - debut));
+    debut += row.n;
+    if (!k || !vue.intersects(L.latLngBounds(row.coins))) continue;
+    const [c0, , , c3] = row.coins;
+    const point = (c, i) => [c[0] + row.pas[0] * i, c[1] + row.pas[1] * i];
+    for (let i = 0; i < k && dessines < PANEL_DETAIL_MAX; i++, dessines++) {
+      panelDetailLayer.addLayer(L.polygon([point(c0, i), point(c0, i + 1), point(c3, i + 1), point(c3, i)], PANEL_STYLE));
+    }
+    if (dessines >= PANEL_DETAIL_MAX) break;
+  }
+}
+map.on("zoomend moveend", refreshPanelDetail);
+
 function showPanels(n) {
   if (!panelLayoutLayer) return;
   if (panelRows.length) {
     showRows(n);
+    refreshPanelDetail();
     return;
   }
   // N'ajoute ou ne retire que la différence : déplacer la barre sur un toit
@@ -608,7 +645,7 @@ function renderPanelControls(out, total, kwParPanneau, dessines) {
              aria-label="Nombre de panneaux posés" />
       <button type="button" class="layout-step" data-step="1" aria-label="Ajouter un panneau">+</button>
     </span>
-    ${dessines ? "" : `<span class="layout-note">Grand toit : panneaux dessinés par rangées.</span>`}`;
+    ${dessines ? "" : `<span class="layout-note">Grand toit : dessiné par rangées, zoomez pour voir chaque panneau.</span>`}`;
   const range = out.querySelector("#layout-range");
   const count = out.querySelector("#layout-count");
   let attente = null;
@@ -658,6 +695,8 @@ async function togglePanelLayout(latlng) {
     panelRows = (data.rangees || []).map((r) => ({ ...r, layer: L.polygon(r.coins, PANEL_STYLE), visible: false }));
     panelLayoutLayer = L.layerGroup().addTo(map);
     panelsShown = 0;
+    // Cadrer le toit : de loin, des panneaux de 1 m ne se distinguent pas.
+    if (companyRoofHighlight) map.fitBounds(companyRoofHighlight.getBounds(), { padding: [40, 40], maxZoom: 20 });
     out.dataset.ouvert = "1";
     btn.textContent = "Masquer les panneaux";
     renderPanelControls(out, data.panneaux, data.kwc / data.panneaux, data.dessines);
@@ -962,7 +1001,7 @@ const segPreviewLayer = L.polygon([], {
   weight: 3,
   dashArray: "6 4",
   fillColor: "#ffb74d",
-  fillOpacity: 0.35,
+  fillOpacity: 0.2,
 }).addTo(map);
 
 function segRender(data) {
@@ -1163,7 +1202,7 @@ const tracePreviewLayer = L.polygon([], {
   weight: 2,
   dashArray: "3 3",
   fillColor: "#82b1ff",
-  fillOpacity: 0.3,
+  fillOpacity: 0.2,
 }).addTo(map);
 
 pointsBtn.addEventListener("click", () => {
