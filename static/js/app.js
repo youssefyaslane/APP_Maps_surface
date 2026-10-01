@@ -525,6 +525,9 @@ async function loadCompanyRoof(latlng) {
         fillColor: "#ffd54f",
         fillOpacity: 0.2,
       }).addTo(map);
+      // Les panneaux se posent dès l'ouverture de la fiche ; le bouton sert
+      // ensuite à les masquer ou à les remettre.
+      togglePanelLayout(latlng);
     }
   } catch (err) {
     if (roofFieldEl) roofFieldEl.remove();
