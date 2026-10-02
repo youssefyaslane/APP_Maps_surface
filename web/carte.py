@@ -9,7 +9,6 @@ import requests
 from flask import Blueprint, jsonify, render_template, request, session
 
 from services import segmentation
-from services.calepinage import calepiner
 from services.geometrie import _polygon_area_m2
 from services.solar import config as solar_config
 from services.toits import (
@@ -503,18 +502,3 @@ def api_company_roof():
         }
     )
 
-
-@bp.route("/api/roof_layout")
-def api_roof_layout():
-    """Panneaux posés sur le toit d'une entreprise : leur nombre et leurs
-    contours, pour les dessiner sur la carte (voir services/calepinage.py)."""
-    try:
-        lon = float(request.args["lon"])
-        lat = float(request.args["lat"])
-    except (KeyError, ValueError):
-        return jsonify({"error": "Paramètres lon/lat invalides"}), 400
-
-    roof = _find_roof_at_point(lon, lat)
-    if roof is None or not roof.get("polygon"):
-        return jsonify({"error": "Aucun toit sous cette entreprise"}), 404
-    return jsonify(calepiner(roof["polygon"]))

@@ -53,8 +53,8 @@ const satelliteLayer = L.tileLayer(
 
 streetLayer.addTo(map);
 
-// Toits remplis à 20 % : le contour reste lisible et l'image satellite (et
-// les panneaux posés) restent visibles dessous.
+// Toits remplis à 20 % : le contour reste lisible et l'image satellite reste
+// visible dessous.
 const buildingsLayer = L.geoJSON(null, {
   style: () => ({
     color: "#2e7d32",
@@ -473,7 +473,6 @@ function openCompanyPanel(props, latlng) {
     map.removeLayer(companyRoofHighlight);
     companyRoofHighlight = null;
   }
-  clearPanelLayout();
   isolateRoofLayers();
   loadCompanyRoof(latlng);
 }
@@ -485,7 +484,6 @@ function isolateRoofLayers() {
 }
 
 function restoreRoofLayers() {
-  clearPanelLayout();
   hiddenRoofLayers.forEach((layer) => map.addLayer(layer));
   hiddenRoofLayers = [];
   if (companyRoofHighlight) {
@@ -512,10 +510,7 @@ async function loadCompanyRoof(latlng) {
       ? ` — ☀️ ~${solar.nPanels} panneau(x) (${solar.capacityKWc.toLocaleString("fr-FR")} kWc)`
       : "";
     roofFieldEl.querySelector(".field-body").innerHTML =
-      `<span class="field-label">Toit</span>${data.area_m2.toLocaleString("fr-FR")} m²${solarText}` +
-      `<button type="button" class="btn-layout" id="btn-layout">☀️ Placer les panneaux</button>` +
-      `<span class="layout-result" id="layout-result"></span>`;
-    document.getElementById("btn-layout").addEventListener("click", () => togglePanelLayout(latlng));
+      `<span class="field-label">Toit</span>${data.area_m2.toLocaleString("fr-FR")} m²${solarText}`;
 
     if (data.polygon && data.polygon.length >= 3) {
       const latlngs = data.polygon.map(([lon, lat]) => [lat, lon]);
@@ -525,188 +520,9 @@ async function loadCompanyRoof(latlng) {
         fillColor: "#ffd54f",
         fillOpacity: 0.2,
       }).addTo(map);
-      // Les panneaux se posent dès l'ouverture de la fiche ; le bouton sert
-      // ensuite à les masquer ou à les remettre.
-      togglePanelLayout(latlng);
     }
   } catch (err) {
     if (roofFieldEl) roofFieldEl.remove();
-  }
-}
-
-// Panneaux posés sur le toit de l'entreprise ouverte (calcul côté serveur).
-// Canvas plutôt que SVG : un grand toit en porte plusieurs milliers.
-// La barre règle combien on en garde : les panneaux s'ajoutent rangée par
-// rangée, dans l'ordre renvoyé par le serveur.
-let panelLayoutLayer = null;
-let panelLayers = [];
-let panelsShown = 0;
-// Grands toits : une forme par rangée de panneaux contigus, au lieu d'une par
-// panneau (voir services/calepinage.py). La rangée coupée par la barre est
-// redessinée à la bonne longueur.
-let panelRows = [];
-let partialRowLayer = null;
-const panelRenderer = L.canvas({ padding: 0.2 });
-// Bleu foncé et opaque, comme de vrais panneaux, avec un liseré clair qui
-// sépare chaque panneau et le détache des toits clairs comme des toits sombres.
-const PANEL_STYLE = {
-  renderer: panelRenderer, color: "#bbdefb", weight: 1, fillColor: "#0b3d91", fillOpacity: 1,
-  interactive: false,
-};
-
-// Zoomé de près sur un grand toit, les rangées visibles sont redécoupées en
-// panneaux, pour les voir un par un sans dessiner les 40 000 d'un coup.
-const PANEL_DETAIL_ZOOM = 19;
-const PANEL_DETAIL_MAX = 4000;
-let panelDetailLayer = null;
-
-function clearPanelLayout() {
-  if (panelLayoutLayer) {
-    map.removeLayer(panelLayoutLayer);
-    panelLayoutLayer = null;
-  }
-  if (panelDetailLayer) {
-    map.removeLayer(panelDetailLayer);
-    panelDetailLayer = null;
-  }
-  panelLayers = [];
-  panelRows = [];
-  partialRowLayer = null;
-  panelsShown = 0;
-}
-
-function refreshPanelDetail() {
-  if (!panelRows.length) return;
-  if (!panelDetailLayer) panelDetailLayer = L.layerGroup().addTo(map);
-  panelDetailLayer.clearLayers();
-  if (map.getZoom() < PANEL_DETAIL_ZOOM) return;
-  const vue = map.getBounds().pad(0.1);
-  let debut = 0;
-  let dessines = 0;
-  for (const row of panelRows) {
-    const k = Math.max(0, Math.min(row.n, panelsShown - debut));
-    debut += row.n;
-    if (!k || !vue.intersects(L.latLngBounds(row.coins))) continue;
-    const [c0, , , c3] = row.coins;
-    const point = (c, i) => [c[0] + row.pas[0] * i, c[1] + row.pas[1] * i];
-    for (let i = 0; i < k && dessines < PANEL_DETAIL_MAX; i++, dessines++) {
-      panelDetailLayer.addLayer(L.polygon([point(c0, i), point(c0, i + 1), point(c3, i + 1), point(c3, i)], PANEL_STYLE));
-    }
-    if (dessines >= PANEL_DETAIL_MAX) break;
-  }
-}
-map.on("zoomend moveend", refreshPanelDetail);
-
-function showPanels(n) {
-  if (!panelLayoutLayer) return;
-  if (panelRows.length) {
-    showRows(n);
-    refreshPanelDetail();
-    return;
-  }
-  // N'ajoute ou ne retire que la différence : déplacer la barre sur un toit
-  // de 5 000 panneaux ne doit pas tout redessiner à chaque cran.
-  n = Math.max(0, Math.min(n, panelLayers.length));
-  for (let i = panelsShown; i < n; i++) panelLayoutLayer.addLayer(panelLayers[i]);
-  for (let i = panelsShown - 1; i >= n; i--) panelLayoutLayer.removeLayer(panelLayers[i]);
-  panelsShown = n;
-}
-
-function showRows(n) {
-  if (partialRowLayer) {
-    panelLayoutLayer.removeLayer(partialRowLayer);
-    partialRowLayer = null;
-  }
-  let debut = 0;
-  for (const row of panelRows) {
-    const pleine = debut + row.n <= n;
-    if (pleine !== row.visible) {
-      if (pleine) panelLayoutLayer.addLayer(row.layer);
-      else panelLayoutLayer.removeLayer(row.layer);
-      row.visible = pleine;
-    }
-    if (!pleine && debut < n) {
-      const m = n - debut;
-      const [c0, , , c3] = row.coins;
-      const avance = (c) => [c[0] + row.pas[0] * m, c[1] + row.pas[1] * m];
-      partialRowLayer = L.polygon([c0, avance(c0), avance(c3), c3], PANEL_STYLE);
-      panelLayoutLayer.addLayer(partialRowLayer);
-    }
-    debut += row.n;
-  }
-  panelsShown = n;
-}
-
-function renderPanelControls(out, total, kwParPanneau, dessines) {
-  const fmtN = (n) => n.toLocaleString("fr-FR");
-  const fmtK = (n) => (Math.round(n * kwParPanneau * 10) / 10).toLocaleString("fr-FR", { maximumFractionDigits: 1 });
-  out.innerHTML = `
-    <span class="layout-count" id="layout-count"></span>
-    <span class="layout-slider">
-      <button type="button" class="layout-step" data-step="-1" aria-label="Retirer un panneau">−</button>
-      <input type="range" id="layout-range" min="0" max="${total}" value="${total}" step="1"
-             aria-label="Nombre de panneaux posés" />
-      <button type="button" class="layout-step" data-step="1" aria-label="Ajouter un panneau">+</button>
-    </span>
-    ${dessines ? "" : `<span class="layout-note">Grand toit : dessiné par rangées, zoomez pour voir chaque panneau.</span>`}`;
-  const range = out.querySelector("#layout-range");
-  const count = out.querySelector("#layout-count");
-  let attente = null;
-  const appliquer = () => {
-    const n = Number(range.value);
-    count.textContent = `${fmtN(n)} / ${fmtN(total)} panneaux — ${fmtK(n)} kWc`;
-    if (attente) cancelAnimationFrame(attente);
-    attente = requestAnimationFrame(() => showPanels(n));
-  };
-  range.addEventListener("input", appliquer);
-  out.querySelectorAll(".layout-step").forEach((b) =>
-    b.addEventListener("click", () => {
-      range.value = Math.max(0, Math.min(total, Number(range.value) + Number(b.dataset.step)));
-      appliquer();
-    })
-  );
-  appliquer();
-}
-
-async function togglePanelLayout(latlng) {
-  const btn = document.getElementById("btn-layout");
-  const out = document.getElementById("layout-result");
-  if (!btn || !out) return;
-  if (panelLayoutLayer || out.dataset.ouvert) {
-    clearPanelLayout();
-    btn.textContent = "☀️ Placer les panneaux";
-    out.textContent = "";
-    delete out.dataset.ouvert;
-    return;
-  }
-  btn.disabled = true;
-  out.textContent = "Calcul…";
-  try {
-    const params = new URLSearchParams({ lon: latlng.lng, lat: latlng.lat });
-    const resp = await fetch(`/api/roof_layout?${params.toString()}`);
-    const data = await resp.json();
-    if (!document.getElementById("layout-result")) return; // panneau fermé entre-temps
-    if (!resp.ok) {
-      out.textContent = data.error || "Placement impossible";
-      return;
-    }
-    if (!data.panneaux) {
-      out.textContent = "Toit trop petit pour poser des panneaux";
-      return;
-    }
-    panelLayers = data.formes.map((p) => L.polygon(p, PANEL_STYLE));
-    panelRows = (data.rangees || []).map((r) => ({ ...r, layer: L.polygon(r.coins, PANEL_STYLE), visible: false }));
-    panelLayoutLayer = L.layerGroup().addTo(map);
-    panelsShown = 0;
-    // Cadrer le toit : de loin, des panneaux de 1 m ne se distinguent pas.
-    if (companyRoofHighlight) map.fitBounds(companyRoofHighlight.getBounds(), { padding: [40, 40], maxZoom: 20 });
-    out.dataset.ouvert = "1";
-    btn.textContent = "Masquer les panneaux";
-    renderPanelControls(out, data.panneaux, data.kwc / data.panneaux, data.dessines);
-  } catch (err) {
-    out.textContent = "Erreur réseau";
-  } finally {
-    btn.disabled = false;
   }
 }
 
