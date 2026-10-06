@@ -73,7 +73,13 @@ def creer_noeud_ecriture(ecrire=None):
             statuts = ecrire(etat["resultats"], etat["requetes"], etat["ville"], user_id)
         except Exception as exc:  # noqa: BLE001
             return {"erreur": f"écriture en base impossible ({exc.__class__.__name__})"}
-        return {"resultats": [{**l, "classe": statuts.get(l["place_id"], l.get("classe"))} for l in etat["resultats"]]}
+        resultats = []
+        for lieu in etat["resultats"]:
+            if lieu["place_id"] in statuts:
+                classe, raison = statuts[lieu["place_id"]]
+                lieu = {**lieu, "classe": classe, "raison": raison or lieu.get("raison")}
+            resultats.append(lieu)
+        return {"resultats": resultats}
 
     return outil_2_ecrire
 

@@ -95,8 +95,8 @@ class FauxCurseur:
             self._resultat = [("Casablanca",)]
         elif sql.startswith("SELECT place_id FROM companies"):
             self._resultat = [(p,) for p in params[0] if p in self.base["place_ids"]]
-        elif sql.startswith("SELECT id FROM companies WHERE lower(trim(name))"):
-            self._resultat = [(1,)] if params[0].lower() in self.base["noms"] else []
+        elif sql.startswith("SELECT id, name, lat, lon, phone, website FROM companies"):
+            self._resultat = list(self.base["existantes"])
         elif sql.startswith("INSERT INTO companies"):
             if params["place_id"] in self.base["conflits"]:
                 self._resultat = []
@@ -134,22 +134,27 @@ class FausseConnexion:
 
 
 def _base(**champs):
-    base = {"place_ids": set(), "noms": set(), "conflits": set(), "inserees": [], "journal": []}
+    base = {"place_ids": set(), "existantes": [], "conflits": set(), "inserees": [], "journal": []}
     base.update(champs)
     return base
 
 
+def _statuts(resultat):
+    return {p: statut for p, (statut, _raison) in resultat.items()}
+
+
 def test_l_outil_2_n_ecrit_que_les_entreprises_nouvelles():
-    base = _base(place_ids={"connu"}, noms={"imce"})
+    base = _base(place_ids={"connu"}, existantes=[(319, "IMCE", 33.59, -7.6, None, None)])
     lieux = [
         _lieu("connu", "Univers Acier", classe="entreprise"),
-        _lieu("p-imce", "IMCE", classe="entreprise"),
+        _lieu("p-imce", "IMCE", classe="entreprise", telephone=None),
         _lieu("neuf", "Nouvelle Usine", classe="entreprise", confiance=0.93, raison="usine"),
         _lieu("stade", "Stade Mohammed V", classe="ecartee"),
         _lieu("doute", "Siège social", classe="a_verifier"),
     ]
     statuts = ecriture.ecrire_nouvelles(lieux, ["usine"], "Casablanca", user_id=7, connecter=lambda: FausseConnexion(base))
-    assert statuts == {"connu": "deja_en_base", "p-imce": "doublon", "neuf": "ajoutee"}
+    assert _statuts(statuts) == {"connu": "deja_en_base", "p-imce": "doublon", "neuf": "ajoutee"}
+    assert "n° 319" in statuts["p-imce"][1]
     assert [l["place_id"] for l in base["inserees"]] == ["neuf"]
     assert base["inserees"][0]["city"] == "Casablanca" and base["inserees"][0]["rating"] == 4.2
     user_id, action, entite, entite_id, details = base["journal"][0]
@@ -162,7 +167,48 @@ def test_une_entreprise_ecrite_entre_temps_n_est_pas_doublee():
     base = _base(conflits={"neuf"})
     statuts = ecriture.ecrire_nouvelles([_lieu("neuf", classe="entreprise")], ["usine"], "Casablanca",
                                         connecter=lambda: FausseConnexion(base))
-    assert statuts == {"neuf": "deja_en_base"} and base["journal"] == []
+    assert _statuts(statuts) == {"neuf": "deja_en_base"} and base["journal"] == []
+
+
+def test_meme_telephone_ou_meme_site_est_un_doublon_meme_loin():
+    # J.J.W (Bd Mohammed VI) et JJWASHING (Tit Mellil) : 7 km, même numéro.
+    base = _base(existantes=[
+        (6024, "JJWASHING usine", 33.5324, -7.4912, "+212 5 22 21 88 09", "http://www.jjwashing.ma/"),
+        (12, "Atlas Plast", 34.0, -6.8, None, "https://atlasplast.ma/contact"),
+        (13, "Café Facebook", 33.59, -7.6, None, "https://facebook.com/cafe"),
+    ])
+    lieux = [
+        _lieu("jjw", "J.J.W", classe="entreprise", telephone="0522218809", lat=33.5263, lon=-7.5641),
+        _lieu("atlas", "Atlas Plastique", classe="entreprise", telephone=None, site="atlasplast.ma"),
+        _lieu("fb", "Autre Société", classe="entreprise", telephone=None, site="https://www.facebook.com/autre"),
+    ]
+    statuts = ecriture.ecrire_nouvelles(lieux, ["usine"], "Casablanca", connecter=lambda: FausseConnexion(base))
+    assert _statuts(statuts) == {"jjw": "doublon", "atlas": "doublon", "fb": "ajoutee"}
+    assert "même téléphone que n° 6024" in statuts["jjw"][1]
+    assert "même site web" in statuts["atlas"][1]
+
+
+def test_nom_proche_au_meme_endroit_est_un_doublon():
+    base = _base(existantes=[(40, "BARDAHL MAGHREB SARL", 33.5333, -7.5834, None, None)])
+    lieux = [_lieu("b", "Bardahl Maghreb (Usine)", classe="entreprise", telephone=None, lat=33.5334, lon=-7.5834)]
+    statuts = ecriture.ecrire_nouvelles(lieux, ["usine"], "Casablanca", connecter=lambda: FausseConnexion(base))
+    assert _statuts(statuts) == {"b": "doublon"}
+
+
+def test_deux_fiches_de_la_meme_societe_dans_une_recherche():
+    base = _base()
+    lieux = [_lieu("a", "Usine Nord", classe="entreprise"), _lieu("b", "Usine Nord SARL", classe="entreprise")]
+    statuts = ecriture.ecrire_nouvelles(lieux, ["usine"], "Casablanca", connecter=lambda: FausseConnexion(base))
+    assert _statuts(statuts) == {"a": "ajoutee", "b": "doublon"}
+    assert len(base["inserees"]) == 1
+
+
+def test_normalisations():
+    assert ecriture.nom_normalise("Ifplast Automobile S.A.R.L") == ecriture.nom_normalise("IFPLAST AUTOMOBILE")
+    assert ecriture.nom_normalise("Société Générale") == "generale"
+    assert ecriture.telephones("+212 5 22 21 88 09 / 06 61 00 00 00") == {"522218809", "661000000"}
+    assert ecriture.domaine("http://www.jjwashing.ma/") == "jjwashing.ma"
+    assert ecriture.domaine("https://facebook.com/x") is None
 
 
 def test_sans_entreprise_aucune_connexion():
@@ -191,7 +237,7 @@ def test_lancer_classe_ecrit_et_fait_le_bilan():
 
     def ecrire(lieux, requetes, ville, user_id):
         appels.append(([l["place_id"] for l in lieux if l["classe"] == "entreprise"], user_id))
-        return {"usine1": "ajoutee"}
+        return {"usine1": ("ajoutee", "usine")}
 
     graphe = _graphe(FauxClassement(TABLE), ecrire)
     repondre(graphe, "t", "usine casablanca")
