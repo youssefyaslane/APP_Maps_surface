@@ -38,8 +38,8 @@
 .chatbot-panel {
   display: flex;
   flex-direction: column;
-  width: 360px;
-  height: min(520px, calc(100vh - 120px));
+  width: min(420px, calc(100vw - 32px));
+  height: min(620px, calc(100vh - 120px));
   margin-bottom: 14px;
   background: #fff;
   border-radius: 16px;
@@ -125,7 +125,7 @@
   align-self: stretch;
   margin: 0;
   padding: 10px 12px 10px 32px;
-  max-height: 260px;
+  max-height: 320px;
   overflow-y: auto;
   background: #fff;
   border: 1px solid var(--cb-trait);
