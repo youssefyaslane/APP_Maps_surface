@@ -2,7 +2,7 @@
 
 Outil de prospection B2B pour la vente de panneaux solaires au Maroc : identifier les toits d'entreprises, estimer leur potentiel photovoltaïque, et prioriser les prospects commerciaux.
 
-L'application combine une **carte interactive** (surface des bâtiments au survol, à partir d'[OpenStreetMap](https://www.openstreetmap.org/), du dataset Microsoft, ou d'une détection IA par MobileSAM) et un **tableau de bord commercial** (`/dashboard`) listant les entreprises classées par puissance installable, avec export CSV pour les équipes de vente.
+L'application combine une **carte interactive** (surface des bâtiments au survol, à partir d'[OpenStreetMap](https://www.openstreetmap.org/), du dataset Microsoft, ou d'une détection IA par MobileSAM) et un **tableau de bord commercial** (`/dashboard`) listant les entreprises classées par puissance installable, avec export CSV pour les équipes de vente. Un **agent IA** (bouton en bas à droite) cherche de nouvelles entreprises sur Google Maps et n'ajoute en base que celles qui n'y sont pas encore.
 
 ## Aide-mémoire (commandes du quotidien)
 
@@ -27,6 +27,11 @@ docker compose exec web python -m scripts.import_companies
 docker compose exec web python -m scripts.compute_solar_potential               # seulement les nouvelles
 docker compose exec web python -m scripts.compute_solar_potential --retry-empty # retente les échecs réseau
 docker compose exec web python -m scripts.compute_solar_potential --all         # tout recalculer
+```
+
+**Chatbot dans le terminal** (même agent que le bouton du site, utile pour tester)
+```bash
+docker compose exec web python -m agent_chatbot_worflow
 ```
 
 **Exporter les grands toits sans entreprise connue** (angle mort à explorer manuellement)
@@ -87,6 +92,7 @@ Accès : carte sur [http://127.0.0.1:5000](http://127.0.0.1:5000), tableau de bo
 - **Tableau de bord commercial** (`/dashboard`) : liste des prospects classés par puissance installable décroissante, statistiques globales, filtres (recherche par nom/adresse, ville, catégorie, puissance minimale), export CSV pour Excel, et lien direct vers chaque toit sur la carte
 - **Entreprises déjà équipées** : une entreprise qui a déjà des panneaux solaires n'est plus un prospect. Le bouton **« Déjà équipée »** (sur chaque ligne du tableau de bord, ou dans la fiche entreprise de la carte) la retire de la liste, des statistiques, de l'export et de la page d'accueil ; elle reste sur la carte, en gris. La vue **« Déjà équipées »** des filtres les liste, avec un bouton **« Rétablir »**. Rien n'est supprimé — un import recréerait l'entreprise — et chaque geste est noté dans le journal. Ouvert à tous les comptes : ce sont les commerciaux qui le constatent
 - **Détection automatique des panneaux déjà posés** : `bash scripts/panneaux/classer_panneaux.sh` analyse l'image satellite de chaque toit (Esri, zoom 19) avec un modèle YOLO entraîné sur les photos IGN ([Cyrille37/solar-panels-IGN-bdortho](https://huggingface.co/Cyrille37/solar-panels-IGN-bdortho), MIT) et enregistre toutes ses confiances dans la table `pv_detections`. Le tableau de bord en tire la colonne **« Déjà équipé ? »** (Oui au-dessus du seuil `PV_SEUIL`, 0,25 par défaut, choisi en vérifiant à l'œil les toits de chaque tranche de confiance) et le filtre **« Panneaux »**. Aucune image n'est écrite sur le disque : les toits passent en mémoire, par un tuyau, jusqu'au modèle, qui tourne dans un conteneur jetable coupé d'Internet. Relancée, la commande n'analyse que les toits nouveaux (`--tout` pour tout refaire). Une règle écarte la plupart des fausses détections : un panneau est sombre, donc un cadre détecté ne compte que si assez de ses pixels le sont (`dark_score`) ; une tôle ou une verrière claire donne « Non ». Réglée sur les 20 toits détectés, vérifiés à l'œil, elle laisse 12 « Oui » justes sur 14 (restent un stade et un dôme vitré, sombres eux aussi) et manque de vrais panneaux qui paraissent clairs. Un « Oui » reste donc à confirmer : seul le bouton « Déjà équipée » retire une entreprise de la liste. `--detectes` réapplique la règle aux toits déjà détectés. Essai sur des images : `bash tests/panneaux/essai_yolo.sh`
+- **Agent IA Recherche d'opportunités** (bouton rond en bas à droite de chaque page) : on écrit sa demande (« des usines à Casablanca »), l'agent lance après confirmation une recherche Google Maps via Apify, classe chaque lieu (entreprise ou non) et n'écrit dans `companies` que les entreprises absentes de la base. Voir [Agent IA Recherche d'opportunités](#agent-ia-recherche-dopportunités)
 - Cache par tuile (mémoire + disque) et récupération parallélisée pour des temps de réponse rapides
 - Préchargement du modèle IA au démarrage, et des tuiles OpenStreetMap **uniquement pour les villes hors de l'emprise ingérée** : depuis l'import de l'extrait Geofabrik, la région de Casablanca est servie par la base et n'a plus rien à préchauffer sur Overpass
 
@@ -229,6 +235,40 @@ Tracer un toit, le détecter par IA, ou le supprimer met à jour le tableau de b
 - **Suppression d'un toit** → les entreprises concernées sont recalculées sur-le-champ (un autre toit peut exister dessous : OSM, Microsoft…). La recherche des entreprises à recalculer utilise le même rayon de rattrapage de 20m que la liaison initiale, sinon une entreprise reliée par rattrapage (point hors du polygone) resterait associée à un toit déjà supprimé
 
 `compute_solar_potential.py` reste utile après un import en masse de nouvelles entreprises, ou pour un recalcul global.
+
+## Agent IA Recherche d'opportunités
+
+Le bouton rond en bas à droite (carte, tableau de bord, accueil) ouvre un chatbot qui trouve de **nouvelles entreprises** sur Google Maps et les ajoute à la base. Le code vit dans `agent_chatbot_worflow/`, un graphe [LangGraph](https://langchain-ai.github.io/langgraph/) :
+
+```
+chatbot ─(requête et ville connues ?)─ non → question de précision
+        └ oui → confirmation ─ Annuler → fin
+                             └ Lancer → outil 1 (Apify) → classification (OpenAI) → outil 2 (écriture) → bilan
+```
+
+1. **Chatbot** (OpenAI) : extrait de la demande, même longue, ce qu'il faut chercher (3 requêtes au plus) et la ville (rapprochée des villes déjà en base). S'il manque l'un des deux, il le demande.
+2. **Confirmation** : une carte récapitule la recherche (requêtes, ville, 20 lieux maximum par requête) avec les boutons **« Lancer la recherche »** et **« Annuler »**. Apify est payant à l'usage : rien ne part sans ce clic.
+3. **Outil 1 — Apify** (`outils/apify.py`, acteur `compass/crawler-google-places`) : 20 lieux par requête, sans avis, photos ni enrichissement des contacts (les options qui font monter le coût) ; environ **0,08 $ pour 20 lieux**. Les lieux sans GPS ou sans identifiant Google sont écartés, ceux trouvés par deux requêtes ne comptent qu'une fois. Le coût réel, relu une fois l'exécution terminée, s'affiche dans le bilan.
+4. **Classification** (`classification.py`, OpenAI, par lots de 20) : entreprise au sens du projet (usine, entrepôt, logistique, siège, grossiste, clinique privée, hôtel…) ou non (lieux publics, mosquées, écoles, cafés, petits commerces de quartier). Seule une réponse sûre (confiance ≥ 0,8) tranche ; le reste est **« à vérifier »** et n'est pas écrit. Une clé OpenAI refusée arrête tout, sans rien écrire.
+5. **Outil 2 — écriture** (`outils/ecriture.py`) : pour chaque entreprise, dans une seule transaction :
+   - `place_id` déjà en base → **« déjà en base »**, rien n'est réécrit ;
+   - **doublon probable**, non écrit, si une entreprise de la base a le **même téléphone** (« +212 5 22 21 88 09 » = « 0522218809 »), le **même site web** (hors réseaux sociaux et annuaires comme Kerix) ou un **nom proche à moins de 50 m** (sans « (Usine) », « SARL », accents ni ponctuation). Règle volontairement stricte : une nouvelle succursale d'une chaîne déjà en base (BIM, Regus…) est elle aussi écartée ;
+   - sinon, l'entreprise est **écrite dans `companies`** au format des imports, avec une ligne `audit_log` (`company_created_by_chatbot` : compte, requêtes, ville, confiance, raison).
+6. **Bilan** : nombre de lieux, coût Apify, et décompte (ajoutées, déjà en base, doublons, écartées, à vérifier), puis la liste des lieux avec un badge par statut ; la raison s'affiche au survol du badge.
+
+L'agent **n'écrit que des entreprises nouvelles** : il ne modifie ni ne supprime aucune entreprise existante. Les lieux écartés, à vérifier ou doublons ne restent que dans la conversation.
+
+**Après une recherche**, calculer le toit et la puissance des nouvelles entreprises :
+
+```bash
+docker compose exec web python -m scripts.compute_solar_potential
+```
+
+**Configuration** (`.env`) : `OPENAI_API_KEY` (et `OPENAI_MODEL`, `gpt-5-mini` par défaut) pour le chatbot et la classification, `APIFY_API_TOKEN` pour la recherche. Sans clé OpenAI, le chatbot répond qu'il est indisponible ; sans jeton Apify, il prépare la recherche mais ne peut pas la lancer.
+
+**Limites à connaître**
+- Les conversations et la recherche en cours (une à trois minutes) vivent en mémoire du serveur : redémarrer le site pendant une recherche l'interrompt avant l'écriture. Les résultats restent alors récupérables dans le compte Apify. Les entreprises déjà écrites, elles, sont en base pour de bon.
+- Google pose parfois les entreprises dont il ignore l'emplacement exact sur un point approximatif (par exemple « GCM8+8J8 », route de Médiouna, partagé par 14 entreprises) : le toit calculé y est alors faux et demande une correction à la main.
 
 ## Lancer avec Docker
 
@@ -388,6 +428,16 @@ import_ms_buildings.py  Import des empreintes de bâtiments Microsoft (.geojsonl
 compute_solar_potential.py  Calcul en masse du potentiel solaire des entreprises (alimente /dashboard)
 export_unmatched_roofs.py   Export CSV des grands toits sans entreprise connue à proximité
 create_user.py           Crée ou met à jour un compte (identifiant + mot de passe)
+agent_chatbot_worflow/  Agent IA Recherche d'opportunités (graphe LangGraph : chatbot, confirmation, Apify, classification, écriture)
+  chatbot.py              Extraction de la demande (requêtes + ville) par OpenAI
+  classification.py       Entreprise ou non, par OpenAI, avec seuil de confiance
+  graphe.py               Enchaînement des étapes et bilan
+  outils/apify.py         Outil 1 : recherche Google Maps via Apify
+  outils/ecriture.py      Outil 2 : détection des doublons et écriture des entreprises nouvelles
+web/chatbot.py          Routes du chatbot ; la recherche tourne en arrière-plan
+templates/_chatbot.html Bouton et fenêtre du chatbot, inclus dans chaque page
+static/js/chatbot.js       Logique de la fenêtre du chatbot (messages, confirmation, résultats)
+static/css/chatbot.css      Styles du chatbot
 templates/index.html    Page principale (carte Leaflet)
 templates/dashboard.html    Tableau de bord commercial (liste de prospects)
 templates/login.html    Page de connexion
@@ -426,6 +476,10 @@ accès sans session redirige vers la page de connexion (`GET /login`,
 - `GET /api/company_roof?lon=&lat=` — cherche le toit (OSM, toit détecté/tracé, ou bâtiment Microsoft) contenant ces coordonnées (test point-dans-polygone par ray casting sur les candidats dans un rayon de ~300m), retourne sa surface, sa source et son polygone
 - `GET /api/geocode?q=` — géocode un nom de lieu via Nominatim/OSM (restreint au Maroc), utilisé par la barre de recherche
 - `GET /dashboard` — tableau de bord commercial
+- `POST /api/chatbot` — message au chatbot (`{"message": "..."}`) ; renvoie sa réponse et, quand la recherche est prête, la carte de confirmation
+- `POST /api/chatbot/lancer` — réponse à la confirmation (`{"lancer": true}` lance la recherche en arrière-plan, `false` l'annule)
+- `GET /api/chatbot/etat` — état de la recherche lancée (`aucune`, `en_cours`, `fini` avec le bilan et les lieux, ou `erreur`), interrogé par la page jusqu'au résultat
+- `POST /api/chatbot/nouveau` — repart d'une conversation vide
 - `GET /api/prospect_filters` — villes et catégories présentes parmi les prospects calculés, triées par fréquence et accompagnées du nombre de prospects, pour alimenter les listes déroulantes du tableau de bord
 - `GET /api/prospects?min_kwc=&city=&category=&search=&limit=&offset=` — prospects avec leur potentiel solaire, triés par puissance décroissante, accompagnés des statistiques globales et de `total_filtered` (nombre total après filtres, pour la pagination). `limit` vaut 50 par défaut, `offset` 0. `city` et `category` sont comparés à l'identique (casse et espaces de bord ignorés), `search` reste flou sur le nom et l'adresse
 - `GET /api/prospects.csv?...` — même liste au format CSV (séparateur `;`, BOM UTF-8 pour Excel), mêmes filtres
