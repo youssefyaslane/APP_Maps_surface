@@ -1,0 +1,27 @@
+<!-- Chatbot de recherche : bouton fixe en bas à droite (web/chatbot.py). -->
+<link rel="stylesheet" href="{{ url_for('static', filename='css/chatbot.css') }}" />
+<div class="chatbot" id="chatbot">
+  <section class="chatbot-panel" id="chatbot-panel" aria-label="Assistant de recherche" hidden>
+    <header class="chatbot-head">
+      <div class="chatbot-titre">
+        <strong>Assistant de recherche</strong>
+        <span>Quoi chercher, et où</span>
+      </div>
+      <button type="button" class="chatbot-icone" id="chatbot-nouveau" title="Nouvelle conversation" aria-label="Nouvelle conversation">↺</button>
+      <button type="button" class="chatbot-icone" id="chatbot-fermer" title="Fermer" aria-label="Fermer">✕</button>
+    </header>
+    <div class="chatbot-messages" id="chatbot-messages" aria-live="polite"></div>
+    <form class="chatbot-form" id="chatbot-form">
+      <textarea id="chatbot-saisie" rows="1" maxlength="2000"
+                placeholder="Ex. : usine à Casablanca" aria-label="Votre message"></textarea>
+      <button type="submit" id="chatbot-envoyer">Envoyer</button>
+    </form>
+  </section>
+  <button type="button" class="chatbot-bouton" id="chatbot-bouton"
+          aria-expanded="false" aria-controls="chatbot-panel" aria-label="Ouvrir l'assistant de recherche">
+    <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+      <path fill="currentColor" d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-4.5 3.6A.6.6 0 0 1 3.5 21V18H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm3 6.2a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm5 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm5 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Z"/>
+    </svg>
+  </button>
+</div>
+<script src="{{ url_for('static', filename='js/chatbot.js') }}" defer></script>

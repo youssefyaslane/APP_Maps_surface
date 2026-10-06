@@ -22,7 +22,7 @@ from services import segmentation
 from services.etat_base import _start_database
 from services.reglages import CACHE_DIR
 from services.toits import _prewarm_cities
-from web import accueil, admin, auth, carte, secours, tableau_de_bord
+from web import accueil, admin, auth, carte, chatbot, secours, tableau_de_bord
 
 app = Flask(__name__)
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
@@ -65,7 +65,7 @@ def _get_secret_key():
 app.secret_key = _get_secret_key()
 
 # « auth » d'abord : son contrôle d'accès s'applique à toutes les pages.
-for module in (auth, accueil, carte, tableau_de_bord, admin, secours):
+for module in (auth, accueil, carte, tableau_de_bord, admin, secours, chatbot):
     app.register_blueprint(module.bp)
 
 

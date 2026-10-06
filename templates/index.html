@@ -123,5 +123,6 @@
      tableau de bord et le calcul en masse. #}
   <script>window.SOLAR_CONFIG = {{ solar_config | tojson }};</script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  {% include "_chatbot.html" %}
 </body>
 </html>

@@ -1,0 +1,195 @@
+/* Chatbot de recherche : bouton fixe en bas à droite, sur toutes les pages.
+   Couleurs Netis redéfinies ici : la feuille est chargée par des pages dont
+   les variables CSS diffèrent (carte, accueil, tableau de bord). */
+
+.chatbot {
+  --cb-bleu: #077ea3;
+  --cb-degrade: linear-gradient(120deg, #077ea3 0%, #2b9d86 50%, #3db258 100%);
+  --cb-ink: #0f1b20;
+  --cb-ink-doux: #47585f;
+  --cb-trait: #dde7e8;
+  --cb-fond: #f4f8f8;
+  position: fixed;
+  right: 24px;
+  bottom: 28px; /* au-dessus de l'attribution Leaflet de la carte */
+  z-index: 3000;
+  font-family: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  color: var(--cb-ink);
+}
+
+.chatbot-bouton {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin-left: auto;
+  border: none;
+  border-radius: 50%;
+  background: var(--cb-degrade);
+  color: #fff;
+  box-shadow: 0 12px 28px rgba(7, 19, 25, 0.28);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.chatbot-bouton:hover { transform: translateY(-2px); box-shadow: 0 16px 34px rgba(7, 19, 25, 0.32); }
+.chatbot-bouton:focus-visible { outline: 3px solid #a4c93c; outline-offset: 3px; }
+
+.chatbot-panel {
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  height: min(520px, calc(100vh - 120px));
+  margin-bottom: 14px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 18px 44px rgba(7, 19, 25, 0.26);
+  overflow: hidden;
+}
+.chatbot-panel[hidden] { display: none; }
+
+.chatbot-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 12px 14px 18px;
+  background: var(--cb-degrade);
+  color: #fff;
+}
+.chatbot-titre { flex: 1; display: flex; flex-direction: column; line-height: 1.25; }
+.chatbot-titre strong { font-size: 15px; }
+.chatbot-titre span { font-size: 12.5px; opacity: 0.9; }
+.chatbot-icone {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+}
+.chatbot-icone:hover { background: rgba(255, 255, 255, 0.32); }
+
+.chatbot-messages {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  overflow-y: auto;
+  background: var(--cb-fond);
+}
+/* Dans une colonne qui défile, les blocs gardent leur hauteur : sans cela,
+   la liste des lieux (elle-même défilante) est écrasée à une ligne. */
+.chatbot-messages > * { flex-shrink: 0; }
+.chatbot-msg {
+  max-width: 85%;
+  padding: 9px 12px;
+  border-radius: 14px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.chatbot-msg.bot { align-self: flex-start; background: #fff; border: 1px solid var(--cb-trait); border-bottom-left-radius: 4px; }
+.chatbot-msg.user { align-self: flex-end; background: var(--cb-bleu); color: #fff; border-bottom-right-radius: 4px; }
+.chatbot-msg.erreur { align-self: flex-start; background: #fdecea; color: #8a1c12; border: 1px solid #f5c2bc; }
+.chatbot-msg.attente { color: var(--cb-ink-doux); font-style: italic; }
+
+.chatbot-recap {
+  align-self: stretch;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--cb-trait);
+  border-left: 4px solid #3db258;
+  border-radius: 10px;
+}
+.chatbot-recap dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0 0 8px; }
+.chatbot-recap dt { color: var(--cb-ink-doux); }
+.chatbot-recap dd { margin: 0; font-weight: 600; }
+.chatbot-recap p { margin: 0; font-size: 12.5px; color: var(--cb-ink-doux); }
+.chatbot-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.chatbot-actions button {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chatbot-lancer { border: none; background: #3db258; color: #fff; }
+.chatbot-annuler { border: 1px solid var(--cb-trait); background: #fff; color: var(--cb-ink); }
+.chatbot-actions button:disabled { opacity: 0.5; cursor: default; }
+
+/* Lieux trouvés par Apify */
+.chatbot-lieux {
+  align-self: stretch;
+  margin: 0;
+  padding: 10px 12px 10px 32px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--cb-trait);
+  border-radius: 10px;
+}
+.chatbot-lieux li { margin-bottom: 6px; line-height: 1.3; }
+.chatbot-lieux strong { display: block; font-size: 13.5px; }
+.chatbot-lieux span { font-size: 12px; color: var(--cb-ink-doux); }
+.chatbot-statut {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  vertical-align: 1px;
+  background: #edf3f3;
+  color: var(--cb-ink-doux);
+}
+.chatbot-statut.ajoutee { background: #e3f4e7; color: #1e7a34; }
+.chatbot-statut.a_verifier { background: #fff4d6; color: #8a5a00; }
+.chatbot-statut.ecartee { background: #fdecea; color: #8a1c12; }
+
+.chatbot-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid var(--cb-trait);
+  background: #fff;
+}
+.chatbot-form textarea {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--cb-trait);
+  border-radius: 10px;
+  font: inherit;
+  line-height: 1.4;
+  resize: none;
+  max-height: 120px; /* environ 5 lignes, puis défilement */
+}
+.chatbot-form textarea:focus { outline: 2px solid var(--cb-bleu); outline-offset: -1px; border-color: transparent; }
+.chatbot-form button {
+  height: 40px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 10px;
+  background: var(--cb-bleu);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.chatbot-form button:disabled { opacity: 0.55; cursor: wait; }
+
+/* Carte : quand la fiche d'une entreprise est ouverte à droite, le bouton se
+   décale à sa gauche pour ne pas cacher ses boutons du bas. */
+@media (min-width: 761px) {
+  body:has(.company-panel:not(.hidden)) .chatbot { right: calc(min(390px, 92vw) + 20px); }
+}
+
+@media (max-width: 480px) {
+  .chatbot { right: 16px; bottom: 20px; }
+  .chatbot-panel { width: calc(100vw - 32px); height: calc(100vh - 110px); }
+}

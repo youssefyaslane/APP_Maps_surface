@@ -26,6 +26,12 @@ services:
       # tourner. GEMINI_MODEL choisit un autre modèle que celui par défaut.
       GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       GEMINI_MODEL: "${GEMINI_MODEL:-gemini-3-flash-preview}"
+      # Chatbot de recherche (bouton en bas à droite, agent_chatbot_worflow/).
+      # Facultatif : sans clé, le chatbot répond qu'il est indisponible.
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-5-mini}"
+      # Recherche Apify lancée par le chatbot (outil 1). Facultatif.
+      APIFY_API_TOKEN: "${APIFY_API_TOKEN:-}"
       # Confiance à partir de laquelle un toit s'affiche « avec panneaux » dans
       # le tableau de bord (détection : scripts/panneaux/classer_panneaux.sh).
       PV_SEUIL: "${PV_SEUIL:-0.25}"
