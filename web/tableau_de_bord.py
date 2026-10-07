@@ -103,7 +103,8 @@ def api_prospects_csv():
         [
             "Nom", "Catégorie", "Adresse", "Ville", "Téléphone", "Email", "Site web",
             "Surface toit (m²)", "Source toit", "Toit partagé", "Entreprises sur ce toit",
-            "Panneaux estimés", "Puissance (kWc)", "Latitude", "Longitude",
+            "Panneaux estimés", "Puissance (kWc)", "Production (MWh/an)",
+            "Productible (kWh/kWc/an)", "CO₂ évité (t/an)", "Latitude", "Longitude",
             "Panneaux déjà posés (détection)", "Confiance détection",
         ]
     )
@@ -114,7 +115,8 @@ def api_prospects_csv():
                 p["name"], p["category"], p["address"], p["city"], p["phone"],
                 p["email"], p["website"], p["roof_area_m2"], p["roof_source"],
                 "oui" if shared > 1 else "non", shared,
-                p["solar_panels"], p["solar_kwc"], p["lat"], p["lon"],
+                p["solar_panels"], p["solar_kwc"], p["production_mwh"],
+                p["solar_yield_kwh_kwc"], p["co2_t"], p["lat"], p["lon"],
                 (p["pv"] or {}).get("verdict", "non analysé"), (p["pv"] or {}).get("confiance"),
             ]
         )

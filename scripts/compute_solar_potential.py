@@ -3,18 +3,24 @@ sous ses coordonnées (OSM, toits détectés/tracés, puis Microsoft), estime le
 nombre de panneaux installables et la puissance correspondante, et stocke le
 résultat dans la table `companies`.
 
-Usage: python -m scripts.compute_solar_potential [--all|--retry-empty]
+Usage: python -m scripts.compute_solar_potential [--all|--retry-empty|--production]
 
 Par défaut, ne traite que les entreprises pas encore calculées (reprise
 possible après interruption). Avec --all, recalcule tout. Avec --retry-empty,
 retraite aussi les entreprises déjà calculées mais sans toit trouvé (rattrape
 les échecs réseau Overpass ponctuels, sans le coût d'un --all complet).
+
+Il enregistre ensuite le productible PVGIS (kWh par kWc et par an) des
+entreprises qui n'en ont pas encore, d'où se déduit leur production annuelle.
+Avec --production, seul ce productible est recalculé, pour toutes : à lancer
+après un changement d'inclinaison, d'orientation ou de pertes
+(SOLAR_TILT_DEG…).
 """
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from services import db
+from services import db, pvgis
 from services.geometrie import _point_in_polygon
 from services.solar import estimate_solar
 from services.etat_base import _init_db
@@ -140,14 +146,31 @@ def compute(recompute_all=False, retry_empty=False):
                 f"  {idx}/{len(companies)} traitées — {found} toit(s) trouvé(s) "
                 f"({elapsed:.0f}s écoulées, ~{remaining / 60:.0f} min restantes)"
             )
+        print(f"Terminé : {found}/{len(companies)} entreprises avec un toit identifié.")
+        remplir_productibles(conn, tout=recompute_all)
     finally:
         conn.close()
 
-    print(f"Terminé : {found}/{len(companies)} entreprises avec un toit identifié.")
+
+def remplir_productibles(conn, tout=False):
+    """Productible PVGIS des entreprises. Un PVGIS injoignable n'annule pas
+    le calcul des toits, déjà enregistré : il suffira de relancer."""
+    try:
+        pvgis.remplir(conn, tout=tout)
+    except pvgis.PvgisIndisponible as exc:
+        print(f"⚠ PVGIS injoignable ({exc}) : production non calculée, relancer plus tard.")
 
 
 if __name__ == "__main__":
-    compute(
-        recompute_all="--all" in sys.argv[1:],
-        retry_empty="--retry-empty" in sys.argv[1:],
-    )
+    if "--production" in sys.argv[1:]:
+        _init_db()
+        connexion = db.connect()
+        try:
+            remplir_productibles(connexion, tout=True)
+        finally:
+            connexion.close()
+    else:
+        compute(
+            recompute_all="--all" in sys.argv[1:],
+            retry_empty="--retry-empty" in sys.argv[1:],
+        )

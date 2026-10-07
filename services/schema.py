@@ -238,3 +238,28 @@ def create_all(cur):
     # change rien au fonctionnement (repli sur Overpass, comme absente).
     create_osm_buildings(cur)
     create_pv_detections(cur)
+    # Productible solaire du lieu (kWh par kWc et par an), donné par PVGIS
+    # (services/pvgis.py). La production annuelle s'en déduit à la lecture
+    # (puissance × productible) : rien à resynchroniser quand un toit change.
+    cur.execute(
+        "ALTER TABLE companies ADD COLUMN IF NOT EXISTS solar_yield_kwh_kwc DOUBLE PRECISION"
+    )
+    # Réponses de PVGIS, par case de 0,1° et par réglage de pose. Simple cache,
+    # absent de COPY_ORDER : une base cible le reconstitue à la demande.
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pvgis_cache (
+            case_lat DOUBLE PRECISION NOT NULL,
+            case_lon DOUBLE PRECISION NOT NULL,
+            inclinaison DOUBLE PRECISION NOT NULL,
+            orientation DOUBLE PRECISION NOT NULL,
+            pertes DOUBLE PRECISION NOT NULL,
+            montage TEXT NOT NULL,
+            productible DOUBLE PRECISION NOT NULL,
+            mensuel JSONB NOT NULL,
+            ensoleillement DOUBLE PRECISION,
+            demande_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (case_lat, case_lon, inclinaison, orientation, pertes, montage)
+        )
+        """
+    )

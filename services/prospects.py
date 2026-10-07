@@ -7,6 +7,7 @@ import psycopg2
 
 from services.comptes import _log_audit
 from services.etat_base import _get_db_pool
+from services.solar import SOLAR_CO2_T_PER_MWH, co2_evite_t, production_mwh
 from services.toits import ROOF_LOOKUP_RADIUS_DEG
 
 def _landing_stats():
@@ -231,7 +232,8 @@ def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=
         )
         SELECT c.id, c.name, c.category, c.address, c.city, c.phone, c.email, c.website,
                c.lon, c.lat, c.roof_area_m2, c.roof_source, c.solar_panels, c.solar_kwc,
-               COALESCE(s.n, 1) AS shared_count, d.has_image, d.scores, d.dark_score
+               COALESCE(s.n, 1) AS shared_count, c.solar_yield_kwh_kwc,
+               d.has_image, d.scores, d.dark_score
         FROM companies c
         LEFT JOIN shared s ON s.roof_key = c.roof_key
         LEFT JOIN pv_detections d ON d.roof_key = c.roof_key
@@ -257,11 +259,13 @@ def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=
     columns = [
         "id", "name", "category", "address", "city", "phone", "email", "website",
         "lon", "lat", "roof_area_m2", "roof_source", "solar_panels", "solar_kwc",
-        "shared_count",
+        "shared_count", "solar_yield_kwh_kwc",
     ]
     prospects = []
     for row in rows:
         prospect = dict(zip(columns, row[:len(columns)]))
+        prospect["production_mwh"] = production_mwh(prospect["solar_kwc"], prospect["solar_yield_kwh_kwc"])
+        prospect["co2_t"] = co2_evite_t(prospect["production_mwh"])
         prospect["pv"] = _pv_detection(*row[len(columns):])
         prospects.append(prospect)
     return prospects
@@ -298,10 +302,12 @@ def _prospects_summary():
                 """
                 SELECT COALESCE(sum(kwc), 0), COALESCE(sum(panels), 0),
                        count(*), COALESCE(avg(area), 0),
-                       count(*) FILTER (WHERE kwc >= %s)
+                       count(*) FILTER (WHERE kwc >= %s),
+                       COALESCE(sum(kwc * rendement), 0) / 1000
                 FROM (
                     SELECT DISTINCT ON (COALESCE(roof_key, 'company:' || id))
-                           solar_kwc AS kwc, solar_panels AS panels, roof_area_m2 AS area
+                           solar_kwc AS kwc, solar_panels AS panels, roof_area_m2 AS area,
+                           solar_yield_kwh_kwc AS rendement
                     FROM companies
                     WHERE roof_area_m2 IS NOT NULL AND equipped_at IS NULL
                     ORDER BY COALESCE(roof_key, 'company:' || id), solar_kwc DESC NULLS LAST
@@ -309,7 +315,7 @@ def _prospects_summary():
                 """,
                 (BIG_PROSPECT_KWC,),
             )
-            total_kwc, total_panels, distinct_roofs, avg_area, big = cur.fetchone()
+            total_kwc, total_panels, distinct_roofs, avg_area, big, total_mwh = cur.fetchone()
     finally:
         pool.putconn(conn)
 
@@ -321,6 +327,8 @@ def _prospects_summary():
         "shared_companies": with_roof - distinct_roofs,
         "total_kwc": round(float(total_kwc), 1),
         "total_panels": int(total_panels),
+        "total_production_mwh": round(float(total_mwh)),
+        "total_co2_t": round(float(total_mwh) * SOLAR_CO2_T_PER_MWH),
         "avg_roof_area_m2": round(float(avg_area), 1),
         "big_prospects": big,
         "big_prospect_threshold": BIG_PROSPECT_KWC,

@@ -27,11 +27,17 @@ docker compose exec web python -m scripts.import_companies
 docker compose exec web python -m scripts.compute_solar_potential               # seulement les nouvelles
 docker compose exec web python -m scripts.compute_solar_potential --retry-empty # retente les échecs réseau
 docker compose exec web python -m scripts.compute_solar_potential --all         # tout recalculer
+docker compose exec web python -m scripts.compute_solar_potential --production  # production seule (après un changement d'inclinaison)
 ```
 
 **Chatbot dans le terminal** (même agent que le bouton du site, utile pour tester)
 ```bash
 docker compose exec web python -m agent_chatbot_workflow
+```
+
+**Régénérer le PDF des calculs** (`docs/Calculs_potentiel_solaire.pdf` : formules, exemples, sources ; hors conteneur, chiffres à mettre à jour dans le script)
+```bash
+python3 scripts/pdf_calculs.py
 ```
 
 **Exporter les grands toits sans entreprise connue** (angle mort à explorer manuellement)
@@ -234,6 +240,29 @@ Tracer un toit, le détecter par IA, ou le supprimer met à jour le tableau de b
 - **Ajout d'un toit** → les entreprises situées dessous reçoivent aussitôt leur potentiel solaire (sauf si elles sont déjà rattachées à un bâtiment OSM, prioritaire). La recherche utilise le même rayon de rattrapage de 20m que `_find_roof_at_point` : le point GPS d'une entreprise tombe souvent juste à côté du toit (parfois à moins d'un mètre), et un test strict laisserait le marqueur rouge alors que la recherche en direct trouve bien le toit
 - **Suppression d'un toit** → les entreprises concernées sont recalculées sur-le-champ (un autre toit peut exister dessous : OSM, Microsoft…). La recherche des entreprises à recalculer utilise le même rayon de rattrapage de 20m que la liaison initiale, sinon une entreprise reliée par rattrapage (point hors du polygone) resterait associée à un toit déjà supprimé
 
+### Production annuelle (PVGIS)
+
+Pour chaque entreprise, la **production estimée par an** se déduit de sa puissance :
+
+> **Production (MWh/an) = puissance (kWc) × productible (kWh par kWc et par an) ÷ 1 000**
+
+Le **productible** dépend de l'ensoleillement du lieu. Il est demandé à [PVGIS](https://re.jrc.ec.europa.eu/pvg_tools/fr/), l'outil de la Commission européenne (`services/pvgis.py`, API publique, gratuite et sans clé) : mêmes chiffres que son site, onglet « Système PV connecté au réseau » pour 1 kWc. Les entreprises sont regroupées par case de 0,1° (~10 km) et chaque case n'est demandée qu'une fois, puis gardée dans la table `pvgis_cache` : la base entière tient en une trentaine d'appels (~25 s). Le productible est enregistré dans `companies.solar_yield_kwh_kwc` ; la production, elle, se calcule à la lecture, si bien qu'elle suit toute seule un changement de toit.
+
+`compute_solar_potential.py` remplit le productible des entreprises qui n'en ont pas encore, après le calcul des toits. `--production` le recalcule pour toutes, à lancer après un changement de réglage. Un point hors couverture (coordonnées en mer) reste sans productible, et sa production s'affiche « — ».
+
+**Réglages** (`services/solar.py`, surchargeables par l'environnement) — l'image satellite ne montre ni la pente ni l'orientation du toit, on retient donc le **cas le plus prudent** :
+
+| Réglage | Variable | Défaut | Productible à Casablanca |
+|---|---|---|---|
+| Inclinaison | `SOLAR_TILT_DEG` | **0°** (panneaux à plat) | 1 455 kWh/kWc (contre 1 555 à 10°, 1 646 à 32°) |
+| Orientation | `SOLAR_AZIMUTH_DEG` | 0 (sud ; -90 est, 90 ouest), sans effet à plat | — |
+| Pertes de l'installation | `SOLAR_SYSTEM_LOSS_PCT` | 14 % (défaut PVGIS ; plus sans nettoyage) | — |
+| Montage | `SOLAR_MOUNTING` | `building` (près de la toiture, plus chaud que `free`) | — |
+
+**CO₂ évité par an** = production (MWh/an) × facteur d'émission du réseau marocain, **0,596 t de CO₂ par MWh** par défaut (2025, d'après les données de l'Agence internationale de l'énergie ; variable `SOLAR_CO2_T_PER_MWH`). Chaque MWh produit sur le toit n'est plus acheté au réseau, encore à 76 % fossile. Le facteur baisse d'année en année : pour un document officiel, reprendre celui publié par l'ONEE.
+
+La production et le CO₂ évité apparaissent au tableau de bord (colonnes « Production » et « CO₂ évité », cartes « Production estimée par an » et « CO₂ évité par an »), dans l'export CSV (production, productible et CO₂), et sur la carte (survol d'une entreprise et fiche).
+
 `compute_solar_potential.py` reste utile après un import en masse de nouvelles entreprises, ou pour un recalcul global.
 
 ## Agent IA Recherche d'opportunités
@@ -422,6 +451,7 @@ supprimés, dont la ligne d'origine disparaît mais dont la trace, elle, reste.
 ```
 app.py                  Serveur Flask + logique Overpass/cache/calcul de surface + persistance PostgreSQL
 services/solar.py         Hypothèses d'installation et estimation kWc — source unique, sans I/O
+services/pvgis.py         Productible solaire du lieu (kWh/kWc/an) demandé à PVGIS, mis en cache par zone
 services/segmentation.py         Segmentation IA des bâtiments (extraction imagerie satellite + MobileSAM)
 import_companies.py     Import en masse des entreprises depuis un/des export(s) .xlsx vers PostgreSQL
 import_ms_buildings.py  Import des empreintes de bâtiments Microsoft (.geojsonl) vers PostgreSQL

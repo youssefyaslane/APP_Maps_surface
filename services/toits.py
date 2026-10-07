@@ -219,7 +219,7 @@ def _query_companies(bbox):
             cur.execute(
                 """
                 SELECT id, name, category, address, city, phone, email, website, rating,
-                       lon, lat, roof_area_m2, solar_kwc, equipped_at
+                       lon, lat, roof_area_m2, solar_kwc, equipped_at, solar_yield_kwh_kwc
                 FROM companies
                 WHERE lat BETWEEN %s AND %s AND lon BETWEEN %s AND %s
                 """,
@@ -245,6 +245,7 @@ def _query_companies(bbox):
             "solar_kwc": r[12],
             "has_roof": r[11] is not None,
             "equipped": r[13] is not None,
+            "solar_yield_kwh_kwc": r[14],
         }
         for r in rows
     ]

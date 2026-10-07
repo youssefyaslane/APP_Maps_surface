@@ -1,0 +1,129 @@
+"""Productible solaire (kWh produits par kWc installé et par an) d'un lieu,
+demandé à PVGIS, l'outil de la Commission européenne
+(https://re.jrc.ec.europa.eu/pvg_tools/fr/) : même moteur et mêmes chiffres
+que son site, interrogé par son API publique, gratuite et sans clé.
+
+L'ensoleillement change peu sur quelques kilomètres : les entreprises sont
+regroupées par case de 0,1° (environ 10 km) et chaque case n'est demandée
+qu'une fois, puis gardée dans la table `pvgis_cache`. Toute la région de
+Casablanca tient en quelques appels.
+"""
+import json
+import time
+
+import requests
+
+from services import solar
+
+API = "https://re.jrc.ec.europa.eu/api/v5_3/PVcalc"
+CASE_DEG = 0.1
+TIMEOUT_S = 60
+ESSAIS = 3
+
+
+class PvgisIndisponible(Exception):
+    pass
+
+
+def case(lat, lon):
+    return round(float(lat), 1), round(float(lon), 1)
+
+
+def reglages():
+    """Réglages de pose envoyés à PVGIS ; ils font partie de la clé du cache,
+    si bien qu'en changer redemande les cases au lieu de servir l'ancien chiffre."""
+    return {
+        "angle": solar.SOLAR_TILT_DEG,
+        "aspect": solar.SOLAR_AZIMUTH_DEG,
+        "loss": solar.SOLAR_SYSTEM_LOSS_PCT,
+        "mountingplace": solar.SOLAR_MOUNTING,
+    }
+
+
+def demander(lat, lon, session=None):
+    """Interroge PVGIS pour 1 kWc à ce point. Renvoie {productible, mensuel,
+    ensoleillement}, ou None pour un point que PVGIS ne couvre pas (en mer).
+    `session` se remplace dans les tests."""
+    params = {"lat": lat, "lon": lon, "peakpower": 1, "outputformat": "json", **reglages()}
+    http = session or requests
+    for essai in range(ESSAIS):
+        try:
+            reponse = http.get(API, params=params, timeout=TIMEOUT_S)
+        except requests.RequestException as exc:
+            erreur = exc
+        else:
+            if reponse.status_code == 400:
+                return None   # « Location over the sea » et autres points hors couverture
+            if reponse.ok:
+                sortie = reponse.json()["outputs"]
+                total = sortie["totals"]["fixed"]
+                return {
+                    "productible": round(total["E_y"], 1),
+                    "mensuel": [round(m["E_m"], 1) for m in sortie["monthly"]["fixed"]],
+                    "ensoleillement": round(total["H(i)_y"], 1),
+                }
+            erreur = PvgisIndisponible(f"PVGIS a répondu {reponse.status_code}")
+        time.sleep(2 ** essai)
+    raise PvgisIndisponible(str(erreur))
+
+
+def productible(cur, lat, lon, session=None):
+    """Productible (kWh/kWc/an) de la case de ce point, depuis le cache ou PVGIS."""
+    clat, clon = case(lat, lon)
+    r = reglages()
+    cle = (clat, clon, r["angle"], r["aspect"], r["loss"], r["mountingplace"])
+    cur.execute(
+        """
+        SELECT productible FROM pvgis_cache
+        WHERE case_lat = %s AND case_lon = %s AND inclinaison = %s AND orientation = %s
+          AND pertes = %s AND montage = %s
+        """,
+        cle,
+    )
+    ligne = cur.fetchone()
+    if ligne:
+        return ligne[0]
+    resultat = demander(clat, clon, session)
+    if resultat is None:
+        return None
+    cur.execute(
+        """
+        INSERT INTO pvgis_cache (case_lat, case_lon, inclinaison, orientation, pertes, montage,
+                                 productible, mensuel, ensoleillement)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
+        """,
+        (*cle, resultat["productible"], json.dumps(resultat["mensuel"]), resultat["ensoleillement"]),
+    )
+    return resultat["productible"]
+
+
+def remplir(conn, tout=False, session=None):
+    """Enregistre le productible de chaque entreprise qui n'en a pas encore
+    (toutes avec `tout`, après un changement de réglage). Renvoie le nombre
+    d'entreprises mises à jour."""
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, lat, lon FROM companies"
+            + ("" if tout else " WHERE solar_yield_kwh_kwc IS NULL")
+        )
+        par_case = {}
+        for ident, lat, lon in cur.fetchall():
+            par_case.setdefault(case(lat, lon), []).append(ident)
+
+    print(f"Productible PVGIS : {sum(map(len, par_case.values()))} entreprise(s), {len(par_case)} zone(s).")
+    faites = 0
+    for (clat, clon), ids in sorted(par_case.items()):
+        # Une transaction par zone : interrompu, le calcul reprend là où il
+        # s'est arrêté, et le cache garde les zones déjà demandées.
+        with conn, conn.cursor() as cur:
+            valeur = productible(cur, clat, clon, session)
+            cur.execute(
+                "UPDATE companies SET solar_yield_kwh_kwc = %s WHERE id = ANY(%s)",
+                (valeur, ids),
+            )
+        faites += len(ids) if valeur else 0
+        if valeur is None:
+            print(f"  zone {clat}, {clon} hors couverture PVGIS : {len(ids)} entreprise(s) sans productible")
+    print(f"  {faites} entreprise(s) avec leur productible.")
+    return faites

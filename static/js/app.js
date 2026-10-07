@@ -373,7 +373,7 @@ function showCompanyTooltip(e, props) {
   const roof = props.has_roof
     ? `<div class="solar">🏠 ${props.roof_area_m2.toLocaleString("fr-FR")} m²${
         props.solar_kwc ? ` — ☀️ ${props.solar_kwc.toLocaleString("fr-FR")} kWc` : ""
-      }</div>`
+      }${productionText(props.solar_kwc, props.solar_yield_kwh_kwc)}</div>`
     : `<div class="no-roof">⚠️ Aucun toit identifié</div>`;
   const equipped = props.equipped ? `<div class="equipped">✓ Déjà équipée de panneaux</div>` : "";
   tooltipEl.innerHTML = `
@@ -474,7 +474,7 @@ function openCompanyPanel(props, latlng) {
     companyRoofHighlight = null;
   }
   isolateRoofLayers();
-  loadCompanyRoof(latlng);
+  loadCompanyRoof(latlng, props.solar_yield_kwh_kwc);
 }
 
 function isolateRoofLayers() {
@@ -492,7 +492,7 @@ function restoreRoofLayers() {
   }
 }
 
-async function loadCompanyRoof(latlng) {
+async function loadCompanyRoof(latlng, yieldKwhKwc) {
   const roofFieldEl = document.getElementById("company-roof-field");
   try {
     const params = new URLSearchParams({ lon: latlng.lng, lat: latlng.lat });
@@ -507,7 +507,8 @@ async function loadCompanyRoof(latlng) {
 
     const solar = estimateSolarPanels(data.area_m2);
     const solarText = solar
-      ? ` — ☀️ ~${solar.nPanels} panneau(x) (${solar.capacityKWc.toLocaleString("fr-FR")} kWc)`
+      ? ` — ☀️ ~${solar.nPanels} panneau(x) (${solar.capacityKWc.toLocaleString("fr-FR")} kWc)` +
+        productionText(solar.capacityKWc, yieldKwhKwc)
       : "";
     roofFieldEl.querySelector(".field-body").innerHTML =
       `<span class="field-label">Toit</span>${data.area_m2.toLocaleString("fr-FR")} m²${solarText}`;
@@ -614,6 +615,15 @@ const citySelectEl = document.getElementById("city-select");
 // le tableau de bord a stockée en base, au lieu d'en recalculer une avec ses
 // propres constantes.
 const SOLAR = window.SOLAR_CONFIG;
+
+// Production annuelle : puissance × productible du lieu (PVGIS, enregistré
+// par scripts/compute_solar_potential.py). Rien tant qu'il n'est pas connu.
+function productionText(kwc, yieldKwhKwc) {
+  if (!kwc || !yieldKwhKwc) return "";
+  const mwh = (kwc * yieldKwhKwc) / 1000;
+  const co2 = SOLAR ? ` — 🌱 ${Math.round(mwh * SOLAR.co2_t_per_mwh).toLocaleString("fr-FR")} t CO₂ évitées/an` : "";
+  return ` — ⚡ ${Math.round(mwh).toLocaleString("fr-FR")} MWh/an${co2}`;
+}
 
 function estimateSolarPanels(area_m2) {
   if (!area_m2 || area_m2 <= 0 || !SOLAR) return null;
