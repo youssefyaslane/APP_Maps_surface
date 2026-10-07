@@ -3,11 +3,15 @@
     START → chatbot ─(requête et ville ?)─ non → END (le chatbot a posé sa question)
                      └ oui → confirmation ─(clic ?)─ Annuler → END
                                            └ Lancer → outil_1_apify ─(lieux ?)─ non → bilan
-                                                                    └ oui → classifier → outil_2_ecrire → bilan → END
+                                                                    └ oui → classifier → outil_2_ecrire ─┐
+                                              (entreprises ajoutées ?) oui → outil_3_potentiel → bilan → END
+                                                                       non → bilan → END
 
 La confirmation arrête le graphe (`interrupt`) jusqu'au clic : Apify est payé,
 rien ne part sans l'accord de l'utilisateur. La classification (OpenAI) dit
-entreprise ou non ; l'outil 2 n'écrit que les entreprises absentes de la base.
+entreprise ou non ; l'outil 2 n'écrit que les entreprises absentes de la base ;
+l'outil 3 calcule aussitôt leur toit, leur puissance, leur production et le
+CO₂ évité.
 """
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
@@ -17,7 +21,9 @@ from langgraph.types import Command, interrupt
 from agent_chatbot_workflow import classification
 from agent_chatbot_workflow.chatbot import MAX_RESULTATS, creer_noeud_chatbot
 from agent_chatbot_workflow.etat import EtatProspection
-from agent_chatbot_workflow.outils import apify, ecriture
+from agent_chatbot_workflow.outils import apify, ecriture, potentiel
+
+APERCU = 3   # prospects cités dans le bilan, par puissance décroissante
 
 def confirmation(etat):
     # Le graphe s'arrête ici ; il reprend avec la réponse du clic (Command(resume=…)).
@@ -84,6 +90,49 @@ def creer_noeud_ecriture(ecrire=None):
     return outil_2_ecrire
 
 
+def creer_noeud_potentiel(calculer=None):
+    """Outil 3. `calculer` se remplace dans les tests, pour tourner sans base
+    ni réseau. Un échec (Overpass, PVGIS injoignables) n'annule rien : les
+    entreprises sont écrites, le calcul habituel les rattrapera."""
+    calculer = calculer or potentiel.calculer
+
+    def outil_3_potentiel(etat):
+        ajoutees = [l["place_id"] for l in etat["resultats"] if l.get("classe") == ecriture.AJOUTEE]
+        try:
+            calcul = calculer(ajoutees)
+        except Exception as exc:  # noqa: BLE001
+            return {"avertissement": f"calcul du toit impossible pour l'instant ({exc.__class__.__name__})"}
+        return {"resultats": [{**l, **calcul.get(l["place_id"], {})} for l in etat["resultats"]]}
+
+    return outil_3_potentiel
+
+
+def _fr(n):
+    return f"{n:,.0f}".replace(",", "\u202f")
+
+
+def resume_potentiel(resultats):
+    """Phrase du bilan sur le potentiel des entreprises ajoutées, ou "" sans calcul."""
+    ajoutees = [r for r in resultats if r.get("classe") == ecriture.AJOUTEE and "kwc" in r]
+    if not ajoutees:
+        return ""
+    avec_toit = sorted((r for r in ajoutees if r["kwc"]), key=lambda r: -r["kwc"])
+    kwc = sum(r["kwc"] for r in avec_toit)
+    mwh = sum(r.get("production_mwh") or 0 for r in avec_toit)
+    co2 = sum(r.get("co2_t") or 0 for r in avec_toit)
+    if not avec_toit:
+        return " Aucun toit n'a été trouvé sous les nouvelles entreprises : à tracer sur la carte."
+    texte = f" Potentiel des nouvelles entreprises : {_fr(kwc)} kWc"
+    if mwh:
+        texte += f", {_fr(mwh)} MWh par an, {_fr(co2)} t de CO₂ évitées par an"
+    texte += ". À appeler en premier : " + ", ".join(
+        f"{r['nom']} ({_fr(r['kwc'])} kWc)" for r in avec_toit[:APERCU]) + "."
+    sans = len(ajoutees) - len(avec_toit)
+    if sans:
+        texte += f" {sans} sans toit trouvé, à tracer sur la carte."
+    return texte
+
+
 LIBELLES = (
     (ecriture.AJOUTEE, "nouvelle(s) entreprise(s) ajoutée(s) en base"),
     (ecriture.DEJA_EN_BASE, "déjà en base"),
@@ -107,16 +156,25 @@ def bilan(etat):
         comptes = [(sum(1 for r in resultats if r.get("classe") == cle), libelle) for cle, libelle in LIBELLES]
         detail = ", ".join(f"{n} {libelle}" for n, libelle in comptes if n)
         texte += f" : {detail}." if detail else "."
-        if any(r.get("classe") == ecriture.AJOUTEE for r in resultats):
-            texte += " Leur toit et leur puissance seront calculés par le script habituel."
+        if etat.get("avertissement"):
+            texte += f" Entreprises bien écrites, mais {etat['avertissement']} : lancer le calcul habituel."
+        else:
+            texte += resume_potentiel(resultats)
     else:
         texte += "."
     # La recherche est terminée : une nouvelle demande repart de zéro.
-    return {"pret": False, "confirme": False, "messages": [AIMessage(texte)]}
+    return {"pret": False, "confirme": False, "avertissement": None, "messages": [AIMessage(texte)]}
 
 
 def _apres_outil_1(etat):
     return "classifier" if etat.get("resultats") and not etat.get("erreur") else "bilan"
+
+
+def _apres_ecriture(etat):
+    if etat.get("erreur"):
+        return "bilan"
+    ajoutees = any(r.get("classe") == ecriture.AJOUTEE for r in etat.get("resultats") or [])
+    return "outil_3_potentiel" if ajoutees else "bilan"
 
 
 def _apres_classifier(etat):
@@ -131,20 +189,23 @@ def _apres_confirmation(etat):
     return "outil_1_apify" if etat.get("confirme") else END
 
 
-def construire_graphe(noeud_chatbot=None, recherche=None, modele_classement=None, ecrire=None, checkpointer=None):
+def construire_graphe(noeud_chatbot=None, recherche=None, modele_classement=None, ecrire=None,
+                      calculer=None, checkpointer=None):
     graphe = StateGraph(EtatProspection)
     graphe.add_node("chatbot", noeud_chatbot or creer_noeud_chatbot())
     graphe.add_node("confirmation", confirmation)
     graphe.add_node("outil_1_apify", creer_noeud_apify(recherche))
     graphe.add_node("classifier", creer_noeud_classifier(modele_classement))
     graphe.add_node("outil_2_ecrire", creer_noeud_ecriture(ecrire))
+    graphe.add_node("outil_3_potentiel", creer_noeud_potentiel(calculer))
     graphe.add_node("bilan", bilan)
     graphe.add_edge(START, "chatbot")
     graphe.add_conditional_edges("chatbot", _apres_chatbot, ["confirmation", END])
     graphe.add_conditional_edges("confirmation", _apres_confirmation, ["outil_1_apify", END])
     graphe.add_conditional_edges("outil_1_apify", _apres_outil_1, ["classifier", "bilan"])
     graphe.add_conditional_edges("classifier", _apres_classifier, ["outil_2_ecrire", "bilan"])
-    graphe.add_edge("outil_2_ecrire", "bilan")
+    graphe.add_conditional_edges("outil_2_ecrire", _apres_ecriture, ["outil_3_potentiel", "bilan"])
+    graphe.add_edge("outil_3_potentiel", "bilan")
     graphe.add_edge("bilan", END)
     # La mémoire garde la conversation de chaque thread_id d'un message à
     # l'autre (« usine » puis « à Casablanca »), et l'arrêt sur la

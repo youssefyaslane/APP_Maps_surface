@@ -143,7 +143,10 @@ def _delete_ia_segment(seg_id, deleted_by=None):
     return True
 
 
-def _recompute_solar_for_companies(company_ids):
+def _recompute_solar_for_companies(company_ids, workers=1):
+    """Toit et puissance de ces entreprises. `workers` > 1 cherche les toits en
+    parallèle (l'appel Overpass domine) : le chatbot en calcule des dizaines
+    d'un coup, là où un ajout de toit n'en touche que quelques-unes."""
     pool = _get_db_pool()
     conn = pool.getconn()
     try:
@@ -153,8 +156,13 @@ def _recompute_solar_for_companies(company_ids):
     finally:
         pool.putconn(conn)
 
-    for company_id, lon, lat in targets:
-        roof = _find_roof_at_point(lon, lat)
+    if workers > 1 and len(targets) > 1:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            roofs = list(executor.map(lambda t: _find_roof_at_point(t[1], t[2]), targets))
+    else:
+        roofs = [_find_roof_at_point(lon, lat) for _, lon, lat in targets]
+
+    for (company_id, lon, lat), roof in zip(targets, roofs):
         area = roof["area_m2"] if roof else None
         source = roof["source"] if roof else None
         roof_key = roof["roof_key"] if roof else None

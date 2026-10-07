@@ -22,3 +22,6 @@ class EtatProspection(TypedDict, total=False):
     resultats: list[dict]
     cout_usd: float
     erreur: str | None
+    # Rempli par l'outil 3 quand le calcul du toit échoue : les entreprises
+    # sont écrites, seul leur potentiel reste à calculer.
+    avertissement: str | None

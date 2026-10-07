@@ -272,7 +272,8 @@ Le bouton rond en bas à droite (carte, tableau de bord, accueil) ouvre un chatb
 ```
 chatbot ─(requête et ville connues ?)─ non → question de précision
         └ oui → confirmation ─ Annuler → fin
-                             └ Lancer → outil 1 (Apify) → classification (OpenAI) → outil 2 (écriture) → bilan
+                             └ Lancer → outil 1 (Apify) → classification (OpenAI) → outil 2 (écriture)
+                                        → outil 3 (potentiel, s'il y a des entreprises ajoutées) → bilan
 ```
 
 1. **Chatbot** (OpenAI) : extrait de la demande, même longue, ce qu'il faut chercher (3 requêtes au plus) et la ville (rapprochée des villes déjà en base). S'il manque l'un des deux, il le demande.
@@ -283,15 +284,12 @@ chatbot ─(requête et ville connues ?)─ non → question de précision
    - `place_id` déjà en base → **« déjà en base »**, rien n'est réécrit ;
    - **doublon probable**, non écrit, si une entreprise de la base a le **même téléphone** (« +212 5 22 21 88 09 » = « 0522218809 »), le **même site web** (hors réseaux sociaux et annuaires comme Kerix) ou un **nom proche à moins de 50 m** (sans « (Usine) », « SARL », accents ni ponctuation). Règle volontairement stricte : une nouvelle succursale d'une chaîne déjà en base (BIM, Regus…) est elle aussi écartée ;
    - sinon, l'entreprise est **écrite dans `companies`** au format des imports, avec une ligne `audit_log` (`company_created_by_chatbot` : compte, requêtes, ville, confiance, raison).
-6. **Bilan** : nombre de lieux, coût Apify, et décompte (ajoutées, déjà en base, doublons, écartées, à vérifier), puis la liste des lieux avec un badge par statut ; la raison s'affiche au survol du badge.
+6. **Outil 3 — potentiel** (`outils/potentiel.py`) : aussitôt écrites, les nouvelles entreprises reçoivent leur toit, leur puissance (kWc), leur productible PVGIS, donc leur production par an et le CO₂ évité — le même calcul que `compute_solar_potential.py`, limité à elles, toits cherchés en parallèle. Un échec (Overpass ou PVGIS injoignables) n'annule rien : les entreprises restent écrites et le bilan invite à lancer le calcul habituel.
+7. **Bilan** : nombre de lieux, coût Apify, décompte (ajoutées, déjà en base, doublons, écartées, à vérifier), puis le **potentiel des nouvelles entreprises** (kWc, MWh par an, t de CO₂ évitées, les 3 plus grosses à appeler en premier, celles sans toit à tracer) ; la liste des lieux suit avec un badge par statut (raison au survol) et le potentiel de chaque entreprise ajoutée.
 
 L'agent **n'écrit que des entreprises nouvelles** : il ne modifie ni ne supprime aucune entreprise existante. Les lieux écartés, à vérifier ou doublons ne restent que dans la conversation.
 
-**Après une recherche**, calculer le toit et la puissance des nouvelles entreprises :
-
-```bash
-docker compose exec web python -m scripts.compute_solar_potential
-```
+**Après une recherche**, rien à lancer : le toit, la puissance, la production et le CO₂ des nouvelles entreprises sont déjà calculés. `compute_solar_potential.py` ne sert qu'à rattraper un calcul qui aurait échoué.
 
 **Configuration** (`.env`) : `OPENAI_API_KEY` (et `OPENAI_MODEL`, `gpt-5-mini` par défaut) pour le chatbot et la classification, `APIFY_API_TOKEN` pour la recherche. Sans clé OpenAI, le chatbot répond qu'il est indisponible ; sans jeton Apify, il prépare la recherche mais ne peut pas la lancer.
 
@@ -464,6 +462,7 @@ agent_chatbot_workflow/  Agent IA Recherche d'opportunités (graphe LangGraph : 
   graphe.py               Enchaînement des étapes et bilan
   outils/apify.py         Outil 1 : recherche Google Maps via Apify
   outils/ecriture.py      Outil 2 : détection des doublons et écriture des entreprises nouvelles
+  outils/potentiel.py     Outil 3 : toit, puissance, production et CO₂ des entreprises ajoutées
 web/chatbot.py          Routes du chatbot ; la recherche tourne en arrière-plan
 templates/_chatbot.html Bouton et fenêtre du chatbot, inclus dans chaque page
 static/js/chatbot.js       Logique de la fenêtre du chatbot (messages, confirmation, résultats)

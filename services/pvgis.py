@@ -98,20 +98,29 @@ def productible(cur, lat, lon, session=None):
     return resultat["productible"]
 
 
-def remplir(conn, tout=False, session=None):
+def remplir(conn, tout=False, session=None, ids=None, bavard=True):
     """Enregistre le productible de chaque entreprise qui n'en a pas encore
-    (toutes avec `tout`, après un changement de réglage). Renvoie le nombre
+    (toutes avec `tout`, après un changement de réglage ; seulement `ids` si
+    donné, comme après une recherche du chatbot). Renvoie le nombre
     d'entreprises mises à jour."""
+    conditions, params = [], []
+    if not tout:
+        conditions.append("solar_yield_kwh_kwc IS NULL")
+    if ids is not None:
+        conditions.append("id = ANY(%s)")
+        params.append(list(ids))
     with conn, conn.cursor() as cur:
         cur.execute(
             "SELECT id, lat, lon FROM companies"
-            + ("" if tout else " WHERE solar_yield_kwh_kwc IS NULL")
+            + (" WHERE " + " AND ".join(conditions) if conditions else ""),
+            params,
         )
         par_case = {}
         for ident, lat, lon in cur.fetchall():
             par_case.setdefault(case(lat, lon), []).append(ident)
 
-    print(f"Productible PVGIS : {sum(map(len, par_case.values()))} entreprise(s), {len(par_case)} zone(s).")
+    afficher = print if bavard else (lambda *a: None)
+    afficher(f"Productible PVGIS : {sum(map(len, par_case.values()))} entreprise(s), {len(par_case)} zone(s).")
     faites = 0
     for (clat, clon), ids in sorted(par_case.items()):
         # Une transaction par zone : interrompu, le calcul reprend là où il
@@ -124,6 +133,6 @@ def remplir(conn, tout=False, session=None):
             )
         faites += len(ids) if valeur else 0
         if valeur is None:
-            print(f"  zone {clat}, {clon} hors couverture PVGIS : {len(ids)} entreprise(s) sans productible")
-    print(f"  {faites} entreprise(s) avec leur productible.")
+            afficher(f"  zone {clat}, {clon} hors couverture PVGIS : {len(ids)} entreprise(s) sans productible")
+    afficher(f"  {faites} entreprise(s) avec leur productible.")
     return faites

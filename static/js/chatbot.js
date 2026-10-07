@@ -65,7 +65,13 @@
         nom.appendChild(badge);
       }
       li.appendChild(nom);
-      const detail = [r.categorie, r.adresse].filter(Boolean).join(" · ");
+      // Potentiel calculé par l'outil 3 pour les entreprises ajoutées.
+      const nombre = (n) => Math.round(n).toLocaleString("fr-FR");
+      const potentiel = r.kwc
+        ? `☀️ ${nombre(r.kwc)} kWc${r.production_mwh ? ` · ⚡ ${nombre(r.production_mwh)} MWh/an` : ""}${
+            r.co2_t ? ` · 🌱 ${nombre(r.co2_t)} t CO₂/an` : ""}`
+        : "";
+      const detail = [potentiel, r.categorie, r.adresse].filter(Boolean).join(" · ");
       if (detail) {
         const span = document.createElement("span");
         span.textContent = detail;

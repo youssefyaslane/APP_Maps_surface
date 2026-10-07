@@ -88,8 +88,10 @@ class FauxCurseur:
     def execute(self, sql, params=None):
         sql = " ".join(sql.split())
         if sql.startswith("SELECT id, lat, lon FROM companies"):
-            sans = "WHERE solar_yield_kwh_kwc IS NULL" in sql
-            self._resultat = [(i, la, lo) for i, la, lo, y in self.base["entreprises"] if not (sans and y)]
+            sans = "solar_yield_kwh_kwc IS NULL" in sql
+            ids = params[0] if "ANY" in sql else None
+            self._resultat = [(i, la, lo) for i, la, lo, y in self.base["entreprises"]
+                              if not (sans and y) and (ids is None or i in ids)]
         elif sql.startswith("SELECT productible FROM pvgis_cache"):
             self._resultat = [(self.base["cache"][params],)] if params in self.base["cache"] else []
         elif sql.startswith("INSERT INTO pvgis_cache"):
@@ -136,6 +138,13 @@ def test_remplir_un_appel_par_zone_et_cache_reutilise():
     # Relancé avec --production : tout est recalculé, mais depuis le cache.
     assert pvgis.remplir(FausseConnexion(base), tout=True, session=FausseSession()) == 4
     assert base["maj"][4] == 1455
+
+
+def test_remplir_seulement_les_entreprises_demandees():
+    base = {"entreprises": [(1, 33.58, -7.58, None), (2, 31.63, -8.01, None)], "cache": {}, "maj": {}}
+    session = FausseSession(Reponse(200, corps_pvgis(1455)))
+    assert pvgis.remplir(FausseConnexion(base), session=session, ids=[1], bavard=False) == 1
+    assert base["maj"] == {1: 1455} and len(session.appels) == 1
 
 
 def test_production_annuelle():

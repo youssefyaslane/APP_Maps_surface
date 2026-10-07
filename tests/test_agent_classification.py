@@ -222,13 +222,18 @@ LIEUX_APIFY = [_lieu("usine1", "Usine Atlas"), _lieu("stade", "Stade Mohammed V"
 TABLE = {"usine1": (True, 0.95), "stade": (False, 0.97), "doute": (True, 0.5)}
 
 
-def _graphe(modele_classement, ecrire):
+def _potentiel_usine(place_ids):
+    return {"usine1": {"id": 6100, "kwc": 775.0, "production_mwh": 1121.4, "co2_t": 668.4}}
+
+
+def _graphe(modele_classement, ecrire, calculer=_potentiel_usine):
     return construire_graphe(
         cb.creer_noeud_chatbot(modele=type("M", (), {"invoke": lambda self, m: cb.Demande(requetes=["usine"], ville="Casablanca")})(),
                                villes={"casablanca": "Casablanca"}),
         recherche=lambda requetes, ville: (LIEUX_APIFY, 0.05),
         modele_classement=modele_classement,
         ecrire=ecrire,
+        calculer=calculer,
     )
 
 
@@ -247,6 +252,77 @@ def test_lancer_classe_ecrit_et_fait_le_bilan():
     assert statuts == {"usine1": "ajoutee", "stade": "ecartee", "doute": "a_verifier"}
     assert "1 nouvelle(s) entreprise(s) ajoutée(s) en base" in r["reponse"]
     assert "1 écartée(s)" in r["reponse"] and "1 à vérifier" in r["reponse"]
+    # Outil 3 : le potentiel des entreprises ajoutées arrive dans le bilan.
+    assert "775 kWc" in r["reponse"] and "1\u202f121 MWh par an" in r["reponse"]
+    assert "Usine Atlas (775 kWc)" in r["reponse"]
+    usine = next(l for l in r["resultats"] if l["place_id"] == "usine1")
+    assert usine["kwc"] == 775.0 and usine["co2_t"] == 668.4
+
+
+def test_un_calcul_du_toit_en_echec_n_annule_pas_l_ecriture():
+    def calculer(place_ids):
+        raise TimeoutError("Overpass")
+
+    graphe = _graphe(FauxClassement(TABLE), lambda *a: {"usine1": ("ajoutee", "usine")}, calculer)
+    repondre(graphe, "t", "usine casablanca")
+    r = decider(graphe, "t", True)
+    assert "1 nouvelle(s) entreprise(s) ajoutée(s)" in r["reponse"]
+    assert "lancer le calcul habituel" in r["reponse"]
+    # L'avertissement ne déborde pas sur la recherche suivante.
+    graphe_ok = _graphe(FauxClassement(TABLE), lambda *a: {"usine1": ("ajoutee", "usine")})
+    repondre(graphe_ok, "t", "usine casablanca")
+    assert "calcul habituel" not in decider(graphe_ok, "t", True)["reponse"]
+
+
+def test_sans_entreprise_ajoutee_pas_de_calcul():
+    graphe = _graphe(FauxClassement(TABLE), lambda *a: {"usine1": ("deja_en_base", "déjà en base")},
+                     lambda ids: pytest.fail("rien à calculer"))
+    repondre(graphe, "t", "usine casablanca")
+    assert "Potentiel" not in decider(graphe, "t", True)["reponse"]
+
+
+def test_resume_sans_toit_trouve():
+    from agent_chatbot_workflow.graphe import resume_potentiel
+
+    lieux = [{"classe": "ajoutee", "nom": "A", "kwc": 0.0, "production_mwh": None, "co2_t": None}]
+    assert "à tracer sur la carte" in resume_potentiel(lieux)
+
+
+def test_outil_3_calcule_toit_puis_productible(monkeypatch):
+    from agent_chatbot_workflow.outils import potentiel
+
+    class Curseur:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *e):
+            return False
+
+        def execute(self, sql, params=None):
+            self.r = [(6100, "usine1")] if "place_id" in sql else [(6100, 775.0, 1447.0)]
+
+        def fetchall(self):
+            return self.r
+
+    class Connexion:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *e):
+            return False
+
+        def cursor(self):
+            return Curseur()
+
+        def close(self):
+            pass
+
+    appels = []
+    monkeypatch.setattr(potentiel.pvgis, "remplir", lambda conn, ids, bavard: appels.append(("pvgis", ids)))
+    r = potentiel.calculer(["usine1"], connecter=Connexion,
+                           recalculer_toits=lambda ids, workers: appels.append(("toits", ids, workers)))
+    assert appels == [("toits", [6100], 6), ("pvgis", [6100])]
+    assert r == {"usine1": {"id": 6100, "kwc": 775.0, "production_mwh": 1121.4, "co2_t": 668.4}}
 
 
 def test_si_la_classification_echoue_rien_n_est_ecrit():
