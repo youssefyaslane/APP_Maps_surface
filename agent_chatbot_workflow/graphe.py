@@ -14,10 +14,10 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-from agent_chatbot_worflow import classification
-from agent_chatbot_worflow.chatbot import MAX_RESULTATS, creer_noeud_chatbot
-from agent_chatbot_worflow.etat import EtatProspection
-from agent_chatbot_worflow.outils import apify, ecriture
+from agent_chatbot_workflow import classification
+from agent_chatbot_workflow.chatbot import MAX_RESULTATS, creer_noeud_chatbot
+from agent_chatbot_workflow.etat import EtatProspection
+from agent_chatbot_workflow.outils import apify, ecriture
 
 def confirmation(etat):
     # Le graphe s'arrête ici ; il reprend avec la réponse du clic (Command(resume=…)).

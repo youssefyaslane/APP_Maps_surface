@@ -17,7 +17,7 @@ timm==1.0.29
 
 openpyxl==3.1.5
 
-# Workflow du chatbot de recherche (agent_chatbot_worflow/) : graphe LangGraph,
+# Workflow du chatbot de recherche (agent_chatbot_workflow/) : graphe LangGraph,
 # modèle OpenAI et recherche Apify (même version que scraping_client/).
 # langchain-core, openai et pydantic viennent avec eux.
 langgraph==1.2.13

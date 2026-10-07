@@ -1,12 +1,12 @@
 """Discuter avec le chatbot dans le terminal, sans passer par le site.
 
-    docker compose exec web python -m agent_chatbot_worflow
+    docker compose exec web python -m agent_chatbot_workflow
 
 Ctrl+D ou une ligne vide pour quitter.
 """
 import uuid
 
-from agent_chatbot_worflow.graphe import construire_graphe, repondre
+from agent_chatbot_workflow.graphe import construire_graphe, repondre
 
 
 def main():

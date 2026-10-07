@@ -31,7 +31,7 @@ docker compose exec web python -m scripts.compute_solar_potential --all         
 
 **Chatbot dans le terminal** (même agent que le bouton du site, utile pour tester)
 ```bash
-docker compose exec web python -m agent_chatbot_worflow
+docker compose exec web python -m agent_chatbot_workflow
 ```
 
 **Exporter les grands toits sans entreprise connue** (angle mort à explorer manuellement)
@@ -238,7 +238,7 @@ Tracer un toit, le détecter par IA, ou le supprimer met à jour le tableau de b
 
 ## Agent IA Recherche d'opportunités
 
-Le bouton rond en bas à droite (carte, tableau de bord, accueil) ouvre un chatbot qui trouve de **nouvelles entreprises** sur Google Maps et les ajoute à la base. Le code vit dans `agent_chatbot_worflow/`, un graphe [LangGraph](https://langchain-ai.github.io/langgraph/) :
+Le bouton rond en bas à droite (carte, tableau de bord, accueil) ouvre un chatbot qui trouve de **nouvelles entreprises** sur Google Maps et les ajoute à la base. Le code vit dans `agent_chatbot_workflow/`, un graphe [LangGraph](https://langchain-ai.github.io/langgraph/) :
 
 ```
 chatbot ─(requête et ville connues ?)─ non → question de précision
@@ -428,7 +428,7 @@ import_ms_buildings.py  Import des empreintes de bâtiments Microsoft (.geojsonl
 compute_solar_potential.py  Calcul en masse du potentiel solaire des entreprises (alimente /dashboard)
 export_unmatched_roofs.py   Export CSV des grands toits sans entreprise connue à proximité
 create_user.py           Crée ou met à jour un compte (identifiant + mot de passe)
-agent_chatbot_worflow/  Agent IA Recherche d'opportunités (graphe LangGraph : chatbot, confirmation, Apify, classification, écriture)
+agent_chatbot_workflow/  Agent IA Recherche d'opportunités (graphe LangGraph : chatbot, confirmation, Apify, classification, écriture)
   chatbot.py              Extraction de la demande (requêtes + ville) par OpenAI
   classification.py       Entreprise ou non, par OpenAI, avec seuil de confiance
   graphe.py               Enchaînement des étapes et bilan

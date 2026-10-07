@@ -1,4 +1,4 @@
-"""Chatbot de recherche (agent_chatbot_worflow) et sa route /api/chatbot.
+"""Chatbot de recherche (agent_chatbot_workflow) et sa route /api/chatbot.
 
 Ce qui casserait en silence : une recherche lancée sans ville (le modèle l'a
 devinée), plus de 20 résultats demandés à Apify, une même ville écrite de deux
@@ -10,8 +10,8 @@ import pytest
 pytest.importorskip("langgraph")
 
 import app as app_module  # noqa: E402
-from agent_chatbot_worflow import chatbot as cb  # noqa: E402
-from agent_chatbot_worflow.graphe import construire_graphe, repondre  # noqa: E402
+from agent_chatbot_workflow import chatbot as cb  # noqa: E402
+from agent_chatbot_workflow.graphe import construire_graphe, repondre  # noqa: E402
 from web import auth  # noqa: E402
 from web import chatbot as route  # noqa: E402
 

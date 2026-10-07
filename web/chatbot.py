@@ -1,5 +1,5 @@
 """Chatbot de recherche (bouton en bas à droite de chaque page) : relaie les
-messages vers le workflow agent_chatbot_worflow.
+messages vers le workflow agent_chatbot_workflow.
 
 Une conversation par session navigateur ; « Nouvelle conversation » en ouvre
 une autre. Quand la requête et la ville sont connues, le graphe attend le
@@ -31,7 +31,7 @@ def _obtenir_graphe():
     global _graphe
     with _verrou:
         if _graphe is None:
-            from agent_chatbot_worflow.graphe import construire_graphe
+            from agent_chatbot_workflow.graphe import construire_graphe
 
             _graphe = construire_graphe()
         return _graphe
@@ -69,7 +69,7 @@ def api_chatbot():
     if _recherche_en_cours(thread_id):
         return jsonify({"error": "Une recherche Apify est en cours : attendez son résultat."}), 409
     try:
-        from agent_chatbot_worflow.graphe import repondre
+        from agent_chatbot_workflow.graphe import repondre
 
         resultat = repondre(_obtenir_graphe(), thread_id, message)
     except Exception as exc:
@@ -84,7 +84,7 @@ def api_chatbot():
 def _executer_recherche(app, graphe, thread_id, user_id):
     """Reprend le graphe après le clic « Lancer » : recherche Apify,
     classification, écriture des entreprises nouvelles, bilan."""
-    from agent_chatbot_worflow.graphe import decider
+    from agent_chatbot_workflow.graphe import decider
 
     try:
         _taches[thread_id] = {"statut": "fini", **decider(graphe, thread_id, True, user_id)}
@@ -106,7 +106,7 @@ def api_chatbot_lancer():
     if not isinstance(lancer, bool):
         return jsonify({"error": "Choix attendu : lancer vrai ou faux"}), 400
     thread_id = _thread_id()
-    from agent_chatbot_worflow.graphe import attend_confirmation, decider
+    from agent_chatbot_workflow.graphe import attend_confirmation, decider
 
     graphe = _obtenir_graphe()
     with _verrou:

@@ -13,10 +13,10 @@ import pytest
 
 pytest.importorskip("langgraph")
 
-from agent_chatbot_worflow import chatbot as cb  # noqa: E402
-from agent_chatbot_worflow import classification as cl  # noqa: E402
-from agent_chatbot_worflow.graphe import construire_graphe, decider, repondre  # noqa: E402
-from agent_chatbot_worflow.outils import ecriture  # noqa: E402
+from agent_chatbot_workflow import chatbot as cb  # noqa: E402
+from agent_chatbot_workflow import classification as cl  # noqa: E402
+from agent_chatbot_workflow.graphe import construire_graphe, decider, repondre  # noqa: E402
+from agent_chatbot_workflow.outils import ecriture  # noqa: E402
 
 
 def _lieu(place_id, nom="Lieu", **autres):

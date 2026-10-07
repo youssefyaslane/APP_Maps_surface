@@ -11,9 +11,9 @@ import pytest
 pytest.importorskip("langgraph")
 
 import app as app_module  # noqa: E402
-from agent_chatbot_worflow import chatbot as cb  # noqa: E402
-from agent_chatbot_worflow.graphe import attend_confirmation, construire_graphe, decider, repondre  # noqa: E402
-from agent_chatbot_worflow.outils import apify  # noqa: E402
+from agent_chatbot_workflow import chatbot as cb  # noqa: E402
+from agent_chatbot_workflow.graphe import attend_confirmation, construire_graphe, decider, repondre  # noqa: E402
+from agent_chatbot_workflow.outils import apify  # noqa: E402
 from web import auth  # noqa: E402
 from web import chatbot as route  # noqa: E402
 
@@ -54,7 +54,7 @@ class FauxClassement:
 
     def invoke(self, messages):
         import json
-        from agent_chatbot_worflow.classification import Decision, Lot
+        from agent_chatbot_workflow.classification import Decision, Lot
 
         lieux = json.loads(messages[-1].content.split("\n", 1)[1])
         return Lot(decisions=[Decision(place_id=l["place_id"], entreprise=True, confiance=0.9, raison="test")
