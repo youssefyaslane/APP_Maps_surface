@@ -482,6 +482,9 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
   color: transparent;
 }
 .foot-links { margin-left: auto; display: flex; gap: 16px; }
+/* Le bouton du chatbot (fixe, en bas à droite) couvrait le lien
+   « Prospects » une fois en bas de page : le pied lui laisse sa place. */
+.foot { padding-right: 104px; }
 .foot-links a { text-decoration: none; }
 .foot-links a:hover { color: var(--turquoise); }
 
@@ -528,7 +531,7 @@ main { max-width: 1080px; margin: 0 auto; padding: 84px 34px 96px; }
 
   .hero { padding: 64px 18px 0; }
   main { padding: 104px 18px 72px; }
-  .foot { padding: 22px 18px 30px; }
+  .foot { padding: 22px 90px 30px 18px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
