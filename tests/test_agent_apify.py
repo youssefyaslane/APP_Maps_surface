@@ -65,11 +65,12 @@ def _ecrire_rien(lieux, requetes, ville, user_id):
     return {}
 
 
-def _graphe(recherche, *extractions):
+def _graphe(recherche, *extractions, gratuite=None):
     extractions = extractions or (cb.Demande(requetes=["usine"], ville="casablanca"),)
     return construire_graphe(
         cb.creer_noeud_chatbot(modele=FauxModele(*extractions), villes=VILLES),
         recherche=recherche, modele_classement=FauxClassement(), ecrire=_ecrire_rien,
+        recherche_gratuite=gratuite or (lambda *a: pytest.fail("recherche gratuite inattendue")),
     )
 
 
@@ -143,7 +144,8 @@ def test_une_demande_prete_attend_le_clic_sans_lancer_apify():
     recherche = FausseRecherche()
     graphe = _graphe(recherche)
     r = repondre(graphe, "t", "usine casablanca")
-    assert r["confirmation"] == {"requetes": ["usine"], "ville": "Casablanca", "max_par_requete": 20}
+    assert r["confirmation"] == {"requetes": ["usine"], "ville": "Casablanca", "max_par_requete": 20,
+                                 "methodes": ["apify", "google_maps"]}
     assert attend_confirmation(graphe, "t")
     assert recherche.appels == []
 
@@ -213,7 +215,7 @@ def test_le_clic_lancer_demarre_la_recherche_et_l_etat_rend_les_lieux(monkeypatc
     monkeypatch.setattr(route, "_obtenir_graphe", lambda: graphe)
     client = _client(monkeypatch)
     assert client.post("/api/chatbot", json={"message": "usine casablanca"}).get_json()["confirmation"]
-    assert client.post("/api/chatbot/lancer", json={"lancer": True}).get_json() == {"statut": "en_cours"}
+    assert client.post("/api/chatbot/lancer", json={"lancer": True, "methode": "apify"}).get_json() == {"statut": "en_cours"}
     etat = client.get("/api/chatbot/etat").get_json()
     assert etat["statut"] == "fini" and len(etat["resultats"]) == 2
     assert recherche.appels == [(["usine"], "Casablanca")]
@@ -224,7 +226,7 @@ def test_annuler_par_la_route_et_refus_sans_recherche_a_confirmer(monkeypatch):
     graphe = _graphe(recherche)
     monkeypatch.setattr(route, "_obtenir_graphe", lambda: graphe)
     client = _client(monkeypatch)
-    assert client.post("/api/chatbot/lancer", json={"lancer": True}).status_code == 409
+    assert client.post("/api/chatbot/lancer", json={"lancer": True, "methode": "apify"}).status_code == 409
     client.post("/api/chatbot", json={"message": "usine casablanca"})
     assert client.post("/api/chatbot/lancer", json={"lancer": "oui"}).status_code == 400
     r = client.post("/api/chatbot/lancer", json={"lancer": False}).get_json()
@@ -237,4 +239,61 @@ def test_sans_jeton_apify_le_clic_lancer_est_refuse(monkeypatch):
     client = _client(monkeypatch)
     monkeypatch.delenv("APIFY_API_TOKEN")
     client.post("/api/chatbot", json={"message": "usine casablanca"})
-    assert client.post("/api/chatbot/lancer", json={"lancer": True}).status_code == 503
+    assert client.post("/api/chatbot/lancer", json={"lancer": True, "methode": "apify"}).status_code == 503
+
+
+# ---------- choix de la méthode : Apify ou Google Maps direct (gratuite) ----------
+
+class FausseRechercheGratuite(FausseRecherche):
+    def __call__(self, requetes, ville):
+        self.appels.append((requetes, ville))
+        return self.resultats, 0.0
+
+
+def test_la_methode_gratuite_choisie_au_clic_remplace_apify():
+    apify_, gratuite = FausseRecherche(), FausseRechercheGratuite()
+    graphe = _graphe(apify_, gratuite=gratuite)
+    repondre(graphe, "t", "usine casablanca")
+    r = decider(graphe, "t", True, methode="google_maps")
+    assert gratuite.appels == [(["usine"], "Casablanca")] and apify_.appels == []
+    assert r["methode"] == "google_maps" and "recherche gratuite sur Google Maps" in r["reponse"]
+    assert "coût Apify" not in r["reponse"]
+
+
+def test_apify_reste_la_methode_par_defaut():
+    apify_ = FausseRecherche()
+    graphe = _graphe(apify_)
+    repondre(graphe, "t", "usine casablanca")
+    r = decider(graphe, "t", True)
+    assert apify_.appels and r["methode"] == "apify" and "coût Apify : 0.08 $" in r["reponse"]
+
+
+def test_un_echec_de_la_recherche_gratuite_est_nomme():
+    gratuite = FausseRecherche(erreur=RuntimeError("aucune fiche lisible"))
+    graphe = _graphe(FausseRecherche(), gratuite=gratuite)
+    repondre(graphe, "t", "usine casablanca")
+    r = decider(graphe, "t", True, methode="google_maps")
+    assert "La recherche Google Maps (gratuite) a échoué : aucune fiche lisible" in r["reponse"]
+
+
+def test_la_route_lance_la_methode_gratuite_sans_jeton_apify(monkeypatch):
+    gratuite = FausseRechercheGratuite()
+    graphe = _graphe(FausseRecherche(), gratuite=gratuite)
+    monkeypatch.setattr(route, "_obtenir_graphe", lambda: graphe)
+    client = _client(monkeypatch)
+    monkeypatch.delenv("APIFY_API_TOKEN")
+    client.post("/api/chatbot", json={"message": "usine casablanca"})
+    assert client.post("/api/chatbot/lancer", json={"lancer": True, "methode": "inconnue"}).status_code == 400
+    assert client.post("/api/chatbot/lancer", json={"lancer": True, "methode": "google_maps"}).get_json() == {"statut": "en_cours"}
+    etat = client.get("/api/chatbot/etat").get_json()
+    assert etat["statut"] == "fini" and etat["methode"] == "google_maps" and gratuite.appels
+
+
+def test_un_lancement_sans_methode_vient_d_une_ancienne_page(monkeypatch):
+    recherche = FausseRecherche()
+    graphe = _graphe(recherche)
+    monkeypatch.setattr(route, "_obtenir_graphe", lambda: graphe)
+    client = _client(monkeypatch)
+    client.post("/api/chatbot", json={"message": "usine casablanca"})
+    r = client.post("/api/chatbot/lancer", json={"lancer": True})
+    assert r.status_code == 409 and "rechargez" in r.get_json()["error"] and recherche.appels == []

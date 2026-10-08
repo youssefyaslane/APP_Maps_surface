@@ -281,6 +281,17 @@ def test_sans_entreprise_ajoutee_pas_de_calcul():
     assert "Potentiel" not in decider(graphe, "t", True)["reponse"]
 
 
+def test_resume_avec_des_toits_non_cherches():
+    from agent_chatbot_workflow.graphe import resume_potentiel
+
+    lieux = [
+        {"classe": "ajoutee", "nom": "A", "kwc": 775.0, "production_mwh": 1121.4, "co2_t": 668.4},
+        {"classe": "ajoutee", "nom": "B", "kwc": None, "non_calcule": True},
+    ]
+    texte = resume_potentiel(lieux)
+    assert "775 kWc" in texte and "1 dont le toit n'a pas pu être cherché" in texte
+
+
 def test_resume_sans_toit_trouve():
     from agent_chatbot_workflow.graphe import resume_potentiel
 
@@ -299,7 +310,7 @@ def test_outil_3_calcule_toit_puis_productible(monkeypatch):
             return False
 
         def execute(self, sql, params=None):
-            self.r = [(6100, "usine1")] if "place_id" in sql else [(6100, 775.0, 1447.0)]
+            self.r = [(6100, "usine1")] if "place_id" in sql else [(6100, 775.0, 1447.0, True)]
 
         def fetchall(self):
             return self.r

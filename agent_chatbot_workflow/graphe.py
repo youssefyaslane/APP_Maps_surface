@@ -2,17 +2,20 @@
 
     START → chatbot ─(requête et ville ?)─ non → END (le chatbot a posé sa question)
                      └ oui → confirmation ─(clic ?)─ Annuler → END
-                                           └ Lancer → outil_1_apify ─(lieux ?)─ non → bilan
+                                           └ Lancer → outil_1_recherche ─(lieux ?)─ non → bilan
                                                                     └ oui → classifier → outil_2_ecrire ─┐
                                               (entreprises ajoutées ?) oui → outil_3_potentiel → bilan → END
                                                                        non → bilan → END
 
-La confirmation arrête le graphe (`interrupt`) jusqu'au clic : Apify est payé,
-rien ne part sans l'accord de l'utilisateur. La classification (OpenAI) dit
+La confirmation arrête le graphe (`interrupt`) jusqu'au clic, qui choisit aussi
+la méthode de recherche : Apify (payante, fiable) ou Google Maps direct
+(gratuite, plus lente). Rien ne part sans l'accord de l'utilisateur. La classification (OpenAI) dit
 entreprise ou non ; l'outil 2 n'écrit que les entreprises absentes de la base ;
 l'outil 3 calcule aussitôt leur toit, leur puissance, leur production et le
 CO₂ évité.
 """
+import logging
+
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
@@ -21,19 +24,26 @@ from langgraph.types import Command, interrupt
 from agent_chatbot_workflow import classification
 from agent_chatbot_workflow.chatbot import MAX_RESULTATS, creer_noeud_chatbot
 from agent_chatbot_workflow.etat import EtatProspection
-from agent_chatbot_workflow.outils import apify, ecriture, potentiel
+from agent_chatbot_workflow.outils import apify, ecriture, google_maps, potentiel
+
+# Méthodes de recherche proposées au clic « Lancer ».
+APIFY, GRATUITE = "apify", "google_maps"
+NOMS_METHODES = {APIFY: "Apify", GRATUITE: "Google Maps (gratuite)"}
 
 APERCU = 3   # prospects cités dans le bilan, par puissance décroissante
 
 def confirmation(etat):
     # Le graphe s'arrête ici ; il reprend avec la réponse du clic (Command(resume=…)).
-    lancer = interrupt({
+    choix = interrupt({
         "requetes": etat["requetes"],
         "ville": etat["ville"],
         "max_par_requete": etat["max_resultats"],
+        "methodes": list(NOMS_METHODES),
     })
+    # {"lancer": bool, "methode": …} ; un simple booléen vaut Apify.
+    lancer, methode = (choix.get("lancer"), choix.get("methode")) if isinstance(choix, dict) else (choix, APIFY)
     if lancer is True:
-        return {"confirme": True}
+        return {"confirme": True, "methode": methode if methode in NOMS_METHODES else APIFY}
     return {
         "confirme": False,
         "pret": False,
@@ -41,18 +51,20 @@ def confirmation(etat):
     }
 
 
-def creer_noeud_apify(recherche=None):
-    """Outil 1. `recherche` se remplace dans les tests, pour tourner sans Apify."""
-    recherche = recherche or apify.rechercher
+def creer_noeud_recherche(recherches):
+    """Outil 1 : la méthode choisie au clic, {méthode: fonction(requêtes,
+    ville) → (lieux, coût)}. Les fonctions se remplacent dans les tests, pour
+    tourner sans Apify ni navigateur."""
 
-    def outil_1_apify(etat):
+    def outil_1_recherche(etat):
+        recherche = recherches[etat.get("methode") or APIFY]
         try:
             resultats, cout = recherche(etat["requetes"], etat["ville"])
         except Exception as exc:  # noqa: BLE001 — l'erreur est rendue à l'utilisateur par le bilan
             return {"resultats": [], "cout_usd": 0.0, "erreur": str(exc) or exc.__class__.__name__}
         return {"resultats": resultats, "cout_usd": cout, "erreur": None}
 
-    return outil_1_apify
+    return outil_1_recherche
 
 
 def creer_noeud_classifier(modele=None):
@@ -101,6 +113,7 @@ def creer_noeud_potentiel(calculer=None):
         try:
             calcul = calculer(ajoutees)
         except Exception as exc:  # noqa: BLE001
+            logging.getLogger(__name__).exception("Chatbot : échec du calcul du potentiel")
             return {"avertissement": f"calcul du toit impossible pour l'instant ({exc.__class__.__name__})"}
         return {"resultats": [{**l, **calcul.get(l["place_id"], {})} for l in etat["resultats"]]}
 
@@ -116,12 +129,18 @@ def resume_potentiel(resultats):
     ajoutees = [r for r in resultats if r.get("classe") == ecriture.AJOUTEE and "kwc" in r]
     if not ajoutees:
         return ""
+    non_calculees = sum(1 for r in ajoutees if r.get("non_calcule"))
+    ajoutees = [r for r in ajoutees if not r.get("non_calcule")]
+    fin = (f" {non_calculees} dont le toit n'a pas pu être cherché (réseau) : lancer le calcul habituel."
+           if non_calculees else "")
+    if not ajoutees:
+        return fin
     avec_toit = sorted((r for r in ajoutees if r["kwc"]), key=lambda r: -r["kwc"])
     kwc = sum(r["kwc"] for r in avec_toit)
     mwh = sum(r.get("production_mwh") or 0 for r in avec_toit)
     co2 = sum(r.get("co2_t") or 0 for r in avec_toit)
     if not avec_toit:
-        return " Aucun toit n'a été trouvé sous les nouvelles entreprises : à tracer sur la carte."
+        return " Aucun toit n'a été trouvé sous les nouvelles entreprises : à tracer sur la carte." + fin
     texte = f" Potentiel des nouvelles entreprises : {_fr(kwc)} kWc"
     if mwh:
         texte += f", {_fr(mwh)} MWh par an, {_fr(co2)} t de CO₂ évitées par an"
@@ -130,7 +149,7 @@ def resume_potentiel(resultats):
     sans = len(ajoutees) - len(avec_toit)
     if sans:
         texte += f" {sans} sans toit trouvé, à tracer sur la carte."
-    return texte
+    return texte + fin
 
 
 LIBELLES = (
@@ -147,11 +166,14 @@ def bilan(etat):
     resultats = etat.get("resultats") or []
     quoi = ", ".join(f"« {r} »" for r in etat["requetes"])
     texte = f"{len(resultats)} lieux trouvés pour {quoi} à {etat['ville']}"
-    if etat.get("cout_usd"):
+    methode = etat.get("methode") or APIFY
+    if methode == GRATUITE:
+        texte += " (recherche gratuite sur Google Maps)"
+    elif etat.get("cout_usd"):
         texte += f" (coût Apify : {etat['cout_usd']:.2f} $)"
     if etat.get("erreur"):
         texte = (f"{texte}. Rien n'a été écrit en base : {etat['erreur']}." if resultats
-                 else f"La recherche Apify a échoué : {etat['erreur']}")
+                 else f"La recherche {NOMS_METHODES[methode]} a échoué : {etat['erreur']}")
     elif resultats:
         comptes = [(sum(1 for r in resultats if r.get("classe") == cle), libelle) for cle, libelle in LIBELLES]
         detail = ", ".join(f"{n} {libelle}" for n, libelle in comptes if n)
@@ -186,23 +208,26 @@ def _apres_chatbot(etat):
 
 
 def _apres_confirmation(etat):
-    return "outil_1_apify" if etat.get("confirme") else END
+    return "outil_1_recherche" if etat.get("confirme") else END
 
 
 def construire_graphe(noeud_chatbot=None, recherche=None, modele_classement=None, ecrire=None,
-                      calculer=None, checkpointer=None):
+                      calculer=None, checkpointer=None, recherche_gratuite=None):
     graphe = StateGraph(EtatProspection)
     graphe.add_node("chatbot", noeud_chatbot or creer_noeud_chatbot())
     graphe.add_node("confirmation", confirmation)
-    graphe.add_node("outil_1_apify", creer_noeud_apify(recherche))
+    graphe.add_node("outil_1_recherche", creer_noeud_recherche({
+        APIFY: recherche or apify.rechercher,
+        GRATUITE: recherche_gratuite or google_maps.rechercher,
+    }))
     graphe.add_node("classifier", creer_noeud_classifier(modele_classement))
     graphe.add_node("outil_2_ecrire", creer_noeud_ecriture(ecrire))
     graphe.add_node("outil_3_potentiel", creer_noeud_potentiel(calculer))
     graphe.add_node("bilan", bilan)
     graphe.add_edge(START, "chatbot")
     graphe.add_conditional_edges("chatbot", _apres_chatbot, ["confirmation", END])
-    graphe.add_conditional_edges("confirmation", _apres_confirmation, ["outil_1_apify", END])
-    graphe.add_conditional_edges("outil_1_apify", _apres_outil_1, ["classifier", "bilan"])
+    graphe.add_conditional_edges("confirmation", _apres_confirmation, ["outil_1_recherche", END])
+    graphe.add_conditional_edges("outil_1_recherche", _apres_outil_1, ["classifier", "bilan"])
     graphe.add_conditional_edges("classifier", _apres_classifier, ["outil_2_ecrire", "bilan"])
     graphe.add_conditional_edges("outil_2_ecrire", _apres_ecriture, ["outil_3_potentiel", "bilan"])
     graphe.add_edge("outil_3_potentiel", "bilan")
@@ -233,6 +258,7 @@ def _sortie(etat, avec_resultats=False):
     if avec_resultats:
         sortie["resultats"] = etat.get("resultats") or []
         sortie["cout_usd"] = etat.get("cout_usd") or 0.0
+        sortie["methode"] = etat.get("methode") or APIFY
         sortie["erreur"] = etat.get("erreur")
     return sortie
 
@@ -244,10 +270,12 @@ def repondre(graphe, thread_id, message):
     return _sortie(graphe.invoke({"messages": [HumanMessage(message)]}, _config(thread_id)))
 
 
-def decider(graphe, thread_id, lancer, user_id=None):
-    """Réponse au clic : Lancer (True) déclenche la recherche Apify, la
-    classification et l'écriture ; Annuler (False) abandonne."""
-    etat = graphe.invoke(Command(resume=bool(lancer)), _config(thread_id, user_id))
+def decider(graphe, thread_id, lancer, user_id=None, methode=APIFY):
+    """Réponse au clic : Lancer (True) déclenche la recherche par la méthode
+    choisie, la classification, l'écriture et le potentiel ; Annuler (False)
+    abandonne."""
+    choix = {"lancer": bool(lancer), "methode": methode}
+    etat = graphe.invoke(Command(resume=choix), _config(thread_id, user_id))
     return _sortie(etat, avec_resultats=bool(lancer))
 
 

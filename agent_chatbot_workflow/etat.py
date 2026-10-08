@@ -16,9 +16,11 @@ class EtatProspection(TypedDict, total=False):
     max_resultats: int
     # Vrai quand la requête et la ville sont connues : la recherche peut partir.
     pret: bool
-    # Rempli par la confirmation (clic « Lancer » ou « Annuler »).
+    # Rempli par la confirmation (clic « Lancer » ou « Annuler ») : la méthode
+    # de recherche choisie, « apify » (payante) ou « google_maps » (gratuite).
     confirme: bool
-    # Remplis par l'outil 1 (Apify).
+    methode: str
+    # Remplis par l'outil 1 (Apify ou Google Maps direct).
     resultats: list[dict]
     cout_usd: float
     erreur: str | None

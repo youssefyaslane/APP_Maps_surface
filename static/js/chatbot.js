@@ -1,7 +1,8 @@
 // Chatbot de recherche (templates/_chatbot.html) : envoie chaque message à
 // /api/chatbot et affiche la réponse. Quand la requête et la ville sont
 // connues, un récapitulatif propose « Lancer » ou « Annuler » ; la recherche
-// Apify tourne alors côté serveur et la page suit /api/chatbot/etat.
+// (Apify, payante, ou Google Maps direct, gratuite) tourne alors côté serveur
+// et la page suit /api/chatbot/etat.
 (() => {
   const racine = document.getElementById("chatbot");
   if (!racine) return;
@@ -83,8 +84,13 @@
     defiler();
   };
 
-  const suivre = () => {
-    const attente = ajouter("Recherche Apify en cours… (une à trois minutes)", "bot attente");
+  const suivre = (methode = "apify") => {
+    const attente = ajouter(
+      methode === "google_maps"
+        ? "Recherche gratuite sur Google Maps en cours… (deux à cinq minutes)"
+        : "Recherche Apify en cours… (une à trois minutes)",
+      "bot attente"
+    );
     occuper(true);
     const tour = async () => {
       let data;
@@ -112,13 +118,13 @@
     setTimeout(tour, SUIVI_MS);
   };
 
-  const decider = async (lancer, boutons) => {
+  const decider = async (lancer, boutons, methode = "apify") => {
     boutons.forEach((b) => { b.disabled = true; });
     try {
       const resp = await fetch("/api/chatbot/lancer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lancer }),
+        body: JSON.stringify({ lancer, methode }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
@@ -126,7 +132,7 @@
         boutons.forEach((b) => { b.disabled = false; });
         return;
       }
-      if (data.statut === "en_cours") suivre();
+      if (data.statut === "en_cours") suivre(methode);
       else ajouter(data.reponse, "bot");
     } catch (err) {
       ajouter("Erreur réseau : action non envoyée.", "erreur");
@@ -149,6 +155,33 @@
       dd.textContent = valeur;
       dl.append(dt, dd);
     });
+    // Choix de la méthode : Apify (payante, fiable) ou Google Maps direct
+    // (gratuite, plus lente, peut être bloquée par Google).
+    const choix = document.createElement("fieldset");
+    choix.className = "chatbot-methodes";
+    const legende = document.createElement("legend");
+    legende.textContent = "Méthode";
+    choix.appendChild(legende);
+    const nomGroupe = `methode-${Date.now()}`;
+    [
+      ["apify", "Apify", "payante, environ 0,08 $ par requête · rapide et fiable"],
+      ["google_maps", "Google Maps direct", "gratuite · plus lente, peut être bloquée par Google"],
+    ].forEach(([valeur, titre, detail], i) => {
+      const etiquette = document.createElement("label");
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = nomGroupe;
+      radio.value = valeur;
+      radio.checked = i === 0;
+      const texte = document.createElement("span");
+      const fort = document.createElement("strong");
+      fort.textContent = titre;
+      texte.append(fort, ` — ${detail}`);
+      etiquette.append(radio, texte);
+      choix.appendChild(etiquette);
+    });
+    const methodeChoisie = () => choix.querySelector("input:checked")?.value || "apify";
+
     const actions = document.createElement("div");
     actions.className = "chatbot-actions";
     const lancer = document.createElement("button");
@@ -159,13 +192,13 @@
     annuler.type = "button";
     annuler.className = "chatbot-annuler";
     annuler.textContent = "Annuler";
-    const boutons = [lancer, annuler];
-    lancer.addEventListener("click", () => decider(true, boutons));
+    const boutons = [lancer, annuler, ...choix.querySelectorAll("input")];
+    lancer.addEventListener("click", () => decider(true, boutons, methodeChoisie()));
     annuler.addEventListener("click", () => decider(false, boutons));
     actions.append(lancer, annuler);
     const note = document.createElement("p");
-    note.textContent = "Apify est payant à l'usage : la recherche ne part qu'après ce clic.";
-    carte.append(dl, actions, note);
+    note.textContent = "La recherche ne part qu'après ce clic.";
+    carte.append(dl, choix, actions, note);
     fil.appendChild(carte);
     defiler();
   };

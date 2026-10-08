@@ -2,6 +2,7 @@
 (avec cache par tuile), recherche du toit sous une entreprise, préchauffage des villes."""
 
 import json
+import logging
 import math
 import os
 import threading
@@ -146,7 +147,12 @@ def _delete_ia_segment(seg_id, deleted_by=None):
 def _recompute_solar_for_companies(company_ids, workers=1):
     """Toit et puissance de ces entreprises. `workers` > 1 cherche les toits en
     parallèle (l'appel Overpass domine) : le chatbot en calcule des dizaines
-    d'un coup, là où un ajout de toit n'en touche que quelques-unes."""
+    d'un coup, là où un ajout de toit n'en touche que quelques-unes.
+
+    Une recherche de toit qui échoue (Overpass injoignable, limite d'appels)
+    laisse cette seule entreprise en l'état, sans calcul : les autres sont
+    enregistrées, et le calcul en masse la reprendra. Renvoie les identifiants
+    de ces entreprises non calculées."""
     pool = _get_db_pool()
     conn = pool.getconn()
     try:
@@ -156,13 +162,26 @@ def _recompute_solar_for_companies(company_ids, workers=1):
     finally:
         pool.putconn(conn)
 
+    echec = object()
+
+    def chercher(cible):
+        try:
+            return _find_roof_at_point(cible[1], cible[2])
+        except Exception:  # noqa: BLE001 — réseau : on n'abandonne que cette entreprise
+            logging.getLogger(__name__).exception("Toit introuvable pour l'entreprise %s", cible[0])
+            return echec
+
     if workers > 1 and len(targets) > 1:
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            roofs = list(executor.map(lambda t: _find_roof_at_point(t[1], t[2]), targets))
+            roofs = list(executor.map(chercher, targets))
     else:
-        roofs = [_find_roof_at_point(lon, lat) for _, lon, lat in targets]
+        roofs = [chercher(t) for t in targets]
 
+    non_calculees = []
     for (company_id, lon, lat), roof in zip(targets, roofs):
+        if roof is echec:
+            non_calculees.append(company_id)
+            continue
         area = roof["area_m2"] if roof else None
         source = roof["source"] if roof else None
         roof_key = roof["roof_key"] if roof else None
@@ -186,6 +205,7 @@ def _recompute_solar_for_companies(company_ids, workers=1):
                 )
         finally:
             pool.putconn(conn)
+    return non_calculees
 
 
 def _companies_inside_polygon(cur, polygon, only_computed=False, include_nearby=False):

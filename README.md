@@ -277,8 +277,10 @@ chatbot ─(requête et ville connues ?)─ non → question de précision
 ```
 
 1. **Chatbot** (OpenAI) : extrait de la demande, même longue, ce qu'il faut chercher (3 requêtes au plus) et la ville (rapprochée des villes déjà en base). S'il manque l'un des deux, il le demande.
-2. **Confirmation** : une carte récapitule la recherche (requêtes, ville, 20 lieux maximum par requête) avec les boutons **« Lancer la recherche »** et **« Annuler »**. Apify est payant à l'usage : rien ne part sans ce clic.
+2. **Confirmation** : une carte récapitule la recherche (requêtes, ville, 20 lieux maximum par requête) avec le **choix de la méthode** (Apify, payante, ou Google Maps direct, gratuite) et les boutons **« Lancer la recherche »** et **« Annuler »**. Rien ne part sans ce clic.
 3. **Outil 1 — Apify** (`outils/apify.py`, acteur `compass/crawler-google-places`) : 20 lieux par requête, sans avis, photos ni enrichissement des contacts (les options qui font monter le coût) ; environ **0,08 $ pour 20 lieux**. Les lieux sans GPS ou sans identifiant Google sont écartés, ceux trouvés par deux requêtes ne comptent qu'une fois. Le coût réel, relu une fois l'exécution terminée, s'affiche dans le bilan.
+
+   **Ou outil 1 gratuit — Google Maps direct** (`outils/google_maps.py`) : un navigateur automatique et invisible (Playwright et Chromium, installés dans l'image Docker) ouvre la recherche Google Maps, fait défiler la liste jusqu'à 20 fiches non sponsorisées par requête, ouvre chaque fiche et lit nom, catégorie, adresse, téléphone, site et note ; coordonnées et identifiant Google (`ChIJ…`, le même qu'Apify, d'où des doublons reconnus d'une méthode à l'autre) viennent du lien de la fiche. Mêmes entrée et sortie qu'Apify : la suite du parcours est identique. Gratuite, mais plus lente (environ 5 s par fiche) et fragile : Google peut bloquer le serveur ou changer sa page (le bilan l'annonce alors : « aucune fiche lisible »), et ses conditions d'utilisation interdisent la lecture automatique. À réserver aux petites recherches ; Apify reste la méthode sûre.
 4. **Classification** (`classification.py`, OpenAI, par lots de 20) : entreprise au sens du projet (usine, entrepôt, logistique, siège, grossiste, clinique privée, hôtel…) ou non (lieux publics, mosquées, écoles, cafés, petits commerces de quartier). Seule une réponse sûre (confiance ≥ 0,8) tranche ; le reste est **« à vérifier »** et n'est pas écrit. Une clé OpenAI refusée arrête tout, sans rien écrire.
 5. **Outil 2 — écriture** (`outils/ecriture.py`) : pour chaque entreprise, dans une seule transaction :
    - `place_id` déjà en base → **« déjà en base »**, rien n'est réécrit ;
@@ -460,7 +462,8 @@ agent_chatbot_workflow/  Agent IA Recherche d'opportunités (graphe LangGraph : 
   chatbot.py              Extraction de la demande (requêtes + ville) par OpenAI
   classification.py       Entreprise ou non, par OpenAI, avec seuil de confiance
   graphe.py               Enchaînement des étapes et bilan
-  outils/apify.py         Outil 1 : recherche Google Maps via Apify
+  outils/apify.py         Outil 1 : recherche Google Maps via Apify (payante)
+  outils/google_maps.py   Outil 1 gratuit : lecture directe de Google Maps par un navigateur automatique
   outils/ecriture.py      Outil 2 : détection des doublons et écriture des entreprises nouvelles
   outils/potentiel.py     Outil 3 : toit, puissance, production et CO₂ des entreprises ajoutées
 web/chatbot.py          Routes du chatbot ; la recherche tourne en arrière-plan

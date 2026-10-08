@@ -15,7 +15,9 @@ RECHERCHES_PARALLELES = 6   # comme le calcul en masse : l'appel Overpass domine
 
 
 def calculer(place_ids, connecter=None, recalculer_toits=None):
-    """{place_id: {id, kwc, production_mwh, co2_t}} pour ces entreprises.
+    """{place_id: {id, kwc, production_mwh, co2_t}} pour ces entreprises ;
+    {id, kwc: None, non_calcule: True} pour celles dont le toit n'a pas pu être
+    cherché (réseau), que le calcul en masse reprendra.
     `connecter` et `recalculer_toits` se remplacent dans les tests."""
     if not place_ids:
         return {}
@@ -32,13 +34,17 @@ def calculer(place_ids, connecter=None, recalculer_toits=None):
             pass   # la puissance est là ; la production attendra le prochain calcul
         with conn, conn.cursor() as cur:
             cur.execute(
-                "SELECT id, solar_kwc, solar_yield_kwh_kwc FROM companies WHERE id = ANY(%s)", (ids,)
+                "SELECT id, solar_kwc, solar_yield_kwh_kwc, solar_computed_at IS NOT NULL "
+                "FROM companies WHERE id = ANY(%s)", (ids,)
             )
             lignes = cur.fetchall()
     finally:
         conn.close()
     resultat = {}
-    for ident, kwc, rendement in lignes:
+    for ident, kwc, rendement, calcule in lignes:
+        if not calcule:
+            resultat[par_id[ident]] = {"id": ident, "kwc": None, "non_calcule": True}
+            continue
         mwh = production_mwh(kwc, rendement)
         resultat[par_id[ident]] = {
             "id": ident,

@@ -7,6 +7,7 @@ clic « Lancer » ; la recherche Apify, la classification et l'écriture des
 entreprises nouvelles (une à trois minutes) tournent alors en arrière-plan et
 la page interroge /api/chatbot/etat jusqu'au résultat.
 """
+import importlib.util
 import os
 import threading
 import uuid
@@ -20,7 +21,7 @@ LONGUEUR_MESSAGE_MAX = 2000
 
 _graphe = None
 _verrou = threading.Lock()
-# Recherches Apify en cours ou finies, par conversation : {"statut", ...sortie}.
+# Recherches en cours ou finies, par conversation : {"statut", ...sortie}.
 # En mémoire du processus, comme les conversations.
 _taches = {}
 
@@ -67,7 +68,7 @@ def api_chatbot():
         return jsonify({"error": "Chatbot indisponible : la clé OpenAI (OPENAI_API_KEY) n'est pas configurée."}), 503
     thread_id = _thread_id()
     if _recherche_en_cours(thread_id):
-        return jsonify({"error": "Une recherche Apify est en cours : attendez son résultat."}), 409
+        return jsonify({"error": "Une recherche est en cours : attendez son résultat."}), 409
     try:
         from agent_chatbot_workflow.graphe import repondre
 
@@ -81,16 +82,16 @@ def api_chatbot():
     return jsonify(resultat)
 
 
-def _executer_recherche(app, graphe, thread_id, user_id):
-    """Reprend le graphe après le clic « Lancer » : recherche Apify,
-    classification, écriture des entreprises nouvelles, bilan."""
+def _executer_recherche(app, graphe, thread_id, user_id, methode="apify"):
+    """Reprend le graphe après le clic « Lancer » : recherche (Apify ou Google
+    Maps direct), classification, écriture des entreprises nouvelles, bilan."""
     from agent_chatbot_workflow.graphe import decider
 
     try:
-        _taches[thread_id] = {"statut": "fini", **decider(graphe, thread_id, True, user_id)}
+        _taches[thread_id] = {"statut": "fini", **decider(graphe, thread_id, True, user_id, methode)}
     except Exception:
         with app.app_context():
-            current_app.logger.exception("Chatbot : échec de la recherche Apify")
+            current_app.logger.exception("Chatbot : échec de la recherche (%s)", methode)
         _taches[thread_id] = {"statut": "erreur", "error": "La recherche a échoué. Réessayez dans un instant."}
 
 
@@ -105,6 +106,15 @@ def api_chatbot_lancer():
     lancer = data.get("lancer")
     if not isinstance(lancer, bool):
         return jsonify({"error": "Choix attendu : lancer vrai ou faux"}), 400
+    # « apify » (payante) ou « google_maps » (gratuite, navigateur automatique).
+    # Un « Lancer » sans méthode vient d'une page ouverte avant l'arrivée du
+    # choix : il partirait sur Apify, payant, sans que la méthode ait été
+    # montrée. Refusé : la page doit être rechargée.
+    methode = data.get("methode")
+    if lancer and methode is None:
+        return jsonify({"error": "La page a été mise à jour : rechargez-la (Ctrl + F5) pour choisir la méthode de recherche."}), 409
+    if lancer and methode not in ("apify", "google_maps"):
+        return jsonify({"error": "Méthode de recherche inconnue."}), 400
     thread_id = _thread_id()
     from agent_chatbot_workflow.graphe import attend_confirmation, decider
 
@@ -115,12 +125,15 @@ def api_chatbot_lancer():
         if not attend_confirmation(graphe, thread_id):
             return jsonify({"error": "Aucune recherche à confirmer : décrivez d'abord ce que vous cherchez."}), 409
         if lancer:
-            if not os.environ.get("APIFY_API_TOKEN"):
+            if methode == "apify" and not os.environ.get("APIFY_API_TOKEN"):
                 return jsonify({"error": "Recherche impossible : le jeton Apify (APIFY_API_TOKEN) n'est pas configuré."}), 503
+            if methode == "google_maps" and importlib.util.find_spec("playwright") is None:
+                return jsonify({"error": "Recherche gratuite impossible : le navigateur automatique (Playwright) n'est pas installé."}), 503
             _taches[thread_id] = {"statut": "en_cours"}
     if not lancer:
         return jsonify({"statut": "annule", **decider(graphe, thread_id, False)})
-    _demarrer(_executer_recherche, current_app._get_current_object(), graphe, thread_id, session.get("user_id"))
+    _demarrer(_executer_recherche, current_app._get_current_object(), graphe, thread_id,
+              session.get("user_id"), methode or "apify")
     return jsonify({"statut": "en_cours"})
 
 
@@ -132,6 +145,6 @@ def api_chatbot_etat():
 @bp.route("/api/chatbot/nouveau", methods=["POST"])
 def api_chatbot_nouveau():
     if _recherche_en_cours(_thread_id()):
-        return jsonify({"error": "Une recherche Apify est en cours : attendez son résultat."}), 409
+        return jsonify({"error": "Une recherche est en cours : attendez son résultat."}), 409
     session["chatbot_thread"] = uuid.uuid4().hex
     return jsonify({"ok": True})
