@@ -309,6 +309,15 @@ def sync(target, apply=False, progress=lambda **_: None, before_apply=None):
             progress(step="Préparation des tables sur la base cible")
             with dst, dst.cursor() as cur:
                 schema.create_all(cur)
+        else:
+            # L'aperçu met lui aussi la cible au schéma actuel avant de comparer,
+            # dans sa propre transaction, annulée à la fin : une cible créée avant
+            # l'ajout d'une colonne (equipped_at, solar_yield_kwh_kwc…) ou d'une
+            # table ne bloque plus l'aperçu, alors que la migration réelle
+            # l'ajouterait de toute façon avant de copier.
+            progress(step="Préparation des tables sur la base cible (aperçu, sans écriture)")
+            with dst.cursor() as cur:
+                schema.create_all(cur)
 
         diff = {}
         staged = {}
