@@ -7,7 +7,7 @@ Se lance hors du conteneur : il demande reportlab et la police DejaVu Sans
 (/usr/share/fonts/truetype/dejavu), pour que ×, ÷, ² et ≈ s'affichent.
 
 Les chiffres (entreprises, productibles, totaux de la base, facteur CO₂) sont
-ceux du 7 octobre 2026, écrits ci-dessous : à mettre à jour à la main avant de
+ceux du 9 octobre 2026, écrits ci-dessous : à mettre à jour à la main avant de
 régénérer le document, comme la date du pied de page. Les hypothèses doivent
 rester celles de services/solar.py.
 """
@@ -40,6 +40,7 @@ TRAIT = colors.HexColor("#c9dcdd")
 # Hypothèses de l'application (services/solar.py) et réglages PVGIS retenus.
 FRACTION, SURF_PANNEAU, PUISS_PANNEAU = 0.70, 2.0, 0.5
 CO2 = 0.596  # t de CO₂ par MWh du réseau marocain (2025)
+TARIF, AUTOCONSO = 1.01, 1.0  # DH/kWh moyenne tension, heures pleines ; part consommée sur place
 
 st = {
     "titre": ParagraphStyle("titre", fontName="DVB", fontSize=21, leading=26, textColor=ENCRE),
@@ -104,7 +105,7 @@ def pied(canvas, doc):
     canvas.saveState()
     canvas.setFont("DV", 7.5)
     canvas.setFillColor(DOUX)
-    canvas.drawString(20 * mm, 11 * mm, "Netis · Calculs du potentiel solaire · 7 octobre 2026")
+    canvas.drawString(20 * mm, 11 * mm, "Netis · Calculs du potentiel solaire · 9 octobre 2026")
     canvas.drawRightString(190 * mm, 11 * mm, f"Page {doc.page}")
     canvas.setStrokeColor(VERT)
     canvas.setLineWidth(2)
@@ -112,7 +113,7 @@ def pied(canvas, doc):
     canvas.restoreState()
 
 
-# ---------- chiffres réels (base de données et PVGIS, 7 octobre 2026) ----------
+# ---------- chiffres réels (base de données et PVGIS, 9 octobre 2026) ----------
 entreprises = [  # nom, ville, surface du toit (m²), productible (kWh/kWc/an)
     ("Paframa", "Casablanca", 527, 1452.8),
     ("IEN MAROC", "Casablanca", 1492, 1447.0),
@@ -135,7 +136,7 @@ story += [
     Spacer(1, 4),
     P("Netis · outil de prospection photovoltaïque · comment l'application calcule la "
       "<b>puissance installable</b> (kWc), la <b>production par an</b> (MWh) et le <b>CO₂ évité</b> "
-      "(tonnes) de chaque entreprise. Chiffres réels de la base et de PVGIS au 7 octobre 2026. "
+      "(tonnes) et les <b>économies maximales</b> (DH) de chaque entreprise. Chiffres réels de la base et de PVGIS au 9 octobre 2026. "
       "Les numéros entre crochets [1]… renvoient aux sources, à la fin du document.", "sous"),
     Spacer(1, 8),
 ]
@@ -145,7 +146,8 @@ story.append(P("En résumé", "h1"))
 story.append(formule(
     "Toit (m²) × 70 % ÷ 2 m² × 0,5 kWc = <font color='#077ea3'>Puissance (kWc)</font><br/>"
     "Puissance (kWc) × Productible ÷ 1 000 = <font color='#2b9d86'>Production (MWh/an)</font><br/>"
-    "Production (MWh/an) × 0,596 = <font color='#3db258'>CO₂ évité (t/an)</font>",
+    "Production (MWh/an) × 0,596 = <font color='#3db258'>CO₂ évité (t/an)</font><br/>"
+    "Production (kWh/an) × 100 % × 1,01 DH = <font color='#8a6d00'>Économies max (DH/an)</font>",
     "La puissance dépend du toit : c'est la taille de l'installation, ce que l'on vend. "
     "La production dépend de la puissance et du soleil du lieu : c'est l'électricité produite, "
     "ce qui fait économiser le client. Le CO₂ évité est ce que le réseau électrique aurait émis "
@@ -160,6 +162,8 @@ story.append(tableau([
     ["Productible", "donné par PVGIS pour ce lieu", "1 447 kWh/kWc/an"],
     ["Production", f"{nb(k)} × 1 447 ÷ 1 000", f"<b>{nb(k * 1447 / 1000, 1)} MWh/an</b>"],
     ["CO₂ évité", f"{nb(k * 1447 / 1000, 1)} × 0,596", f"<b>{nb(round(k * 1447 / 1000, 1) * CO2, 1)} t/an</b>"],
+    ["Économies max", f"{nb(round(k * 1447 / 1000, 1) * 1000)} kWh × 100 % × 1,01 DH",
+     f"<b>{nb(round(k * 1447 / 1000, 1) * 1000 * AUTOCONSO * TARIF)} DH/an</b>"],
 ], [38, 82, 50]))
 
 # ---------- unités ----------
@@ -175,7 +179,7 @@ story.append(tableau([
     ["MWc", "Puissance", "1 000 kWc", "Maghreb Steel ≈ 20 MWc"],
     ["kWh", "Énergie", "1 kW pendant 1 heure", "Climatiseur de 1 kW, 5 h = 5 kWh"],
     ["MWh", "Énergie", "1 000 kWh", "J.J.W ≈ 1 121 MWh par an"],
-    ["GWh", "Énergie", "1 000 MWh = 1 000 000 kWh", "Tous les prospects ≈ 1 218 GWh par an"],
+    ["GWh", "Énergie", "1 000 MWh = 1 000 000 kWh", "Tous les prospects ≈ 1 250 GWh par an"],
     ["t CO₂", "Émissions", "Tonne de dioxyde de carbone", "J.J.W évite ≈ 668 t par an"],
 ], [24, 22, 74, 50]))
 
@@ -280,7 +284,7 @@ story.append(tableau([
     ["Entreprise", "Production par an", "× facteur", "CO₂ évité par an"],
     ["J.J.W", "1 121,4 MWh", "× 0,596", f"<b>{nb(1121.4 * CO2, 1)} t</b>"],
     ["IEN MAROC", "377,7 MWh", "× 0,596", f"<b>{nb(377.7 * CO2, 1)} t</b>"],
-    ["Toute la base", "1 217 652 MWh", "× 0,596", "<b>≈ 725 720 t</b>"],
+    ["Toute la base", "1 250 046 MWh", "× 0,596", "<b>≈ 745 027 t</b>"],
 ], [50, 45, 30, 45]))
 story.append(P("Le PDF de la roadmap Netis prend un exemple à 0,4 t/MWh (300 MWh pour 120 t), typique "
                "d'un réseau plus propre comme en Europe. Au Maroc, le facteur est plus élevé : pour un "
@@ -289,8 +293,35 @@ story.append(P("Le PDF de la roadmap Netis prend un exemple à 0,4 t/MWh (300 MW
                "client, reprendre le chiffre publié par l'ONEE ou le ministère de la Transition "
                "énergétique.", "petit"))
 
+# ---------- économies ----------
+story.append(PageBreak())
+story.append(P("5. Formule 4 : les économies maximales par an (DH)", "h1"))
+story.append(formule("Économies max (DH/an) = Production (kWh/an) × Part consommée sur place × Tarif (DH/kWh)",
+                     "Chaque kWh produit et consommé sur place est un kWh que l'entreprise n'achète plus au réseau."))
+story.append(P("<b>Le tarif</b> : un industriel en moyenne tension paie environ 0,74 DH/kWh en heures "
+               "creuses, <b>1,01 DH/kWh en heures pleines</b> et 1,42 DH/kWh en heures de pointe, TVA "
+               "comprise [10]. Les panneaux produisent en journée, surtout en heures pleines : on retient "
+               "1,01 DH/kWh. C'est prudent, puisqu'une partie de la production tombe aussi en heures de "
+               "pointe, plus chères."))
+story.append(P("<b>La part consommée sur place</b> est inconnue tant qu'on n'a pas la facture du client. "
+               "On retient <b>100 %</b> : une usine consomme surtout le jour, et souvent plus que ce que "
+               "son toit peut produire. D'où le nom d'économies <b>maximales</b> : c'est un ordre de "
+               "grandeur pour classer les prospects, pas une garantie. La même hypothèse vaut pour toutes "
+               "les entreprises, donc l'ordre de qui appeler en premier ne change pas."))
+lignes_eco = [["Entreprise", "Production par an", "Économies max par an"]]
+for nom, ville, surface, prod in entreprises:
+    n, k = puissance(surface)
+    mwh = round(k * prod / 1000, 1)
+    lignes_eco.append([nom, f"{nb(mwh, 1)} MWh", f"<b>{nb(mwh * 1000 * AUTOCONSO * TARIF)} DH</b>"])
+lignes_eco.append(["Toute la base", "1 250 046 MWh", "<b>≈ 1 262 546 378 DH (≈ 1,26 milliard)</b>"])
+story.append(tableau(lignes_eco, [70, 45, 55]))
+story.append(P("Plus tard, avec le CRM, le commercial pourra saisir la consommation annuelle lue sur la "
+               "facture du client : la part consommée sur place, donc les économies, seront alors "
+               "calculées pour cette entreprise. Le retour sur investissement demandera en plus le prix "
+               "moyen d'une installation (DH par kWc).", "petit"))
+
 # ---------- exemples ----------
-story.append(P("5. Exemples avec des entreprises de la base", "h1"))
+story.append(P("6. Exemples avec des entreprises de la base", "h1"))
 lignes = [["Entreprise", "Toit", "Panneaux", "Puissance", "Productible", "Production par an", "CO₂ évité"]]
 for nom, ville, surface, prod in entreprises:
     n, k = puissance(surface)
@@ -313,16 +344,17 @@ story.append(tableau([
 story.append(P("Pour toute la base", "h2"))
 story.append(tableau([
     ["Indicateur", "Valeur"],
-    ["Entreprises avec un productible", "2 235 sur 2 238 (3 ont des coordonnées en mer)"],
-    ["Puissance totale (toits distincts, non équipés)", "840 073 kWc ≈ 840 MWc"],
-    ["Production totale par an", "1 217 652 MWh ≈ 1 218 GWh"],
-    ["CO₂ évité par an", "≈ 725 720 t (environ 726 000 t)"],
+    ["Entreprises avec un productible", "2 268 sur 2 271 (3 ont des coordonnées en mer)"],
+    ["Puissance totale (toits distincts, non équipés)", "862 413 kWc ≈ 862 MWc"],
+    ["Production totale par an", "1 250 046 MWh ≈ 1 250 GWh"],
+    ["CO₂ évité par an", "≈ 745 027 t"],
+    ["Économies max par an", "≈ 1 262 546 378 DH (≈ 1,26 milliard de DH)"],
 ], [85, 85]))
 story.append(P("Un toit partagé par plusieurs entreprises n'est compté qu'une fois, et les "
                "entreprises déjà équipées sont exclues.", "petit"))
 
 # ---------- limites ----------
-story.append(P("6. Hypothèses à valider, et leurs sources", "h1"))
+story.append(P("7. Hypothèses à valider, et leurs sources", "h1"))
 story.append(tableau([
     ["Valeur", "Utilisée pour", "Source", "À savoir"],
     ["Surface utile : 70 % du toit", "Puissance", "Hypothèse Netis (réglage de l'application)",
@@ -343,12 +375,17 @@ story.append(tableau([
     ["Facteur d'émission : 0,596 t CO₂/MWh", "CO₂ évité", "Maroc, 2025, d'après les données de "
      "l'Agence internationale de l'énergie [3][4]", "Baisse chaque année ; à confirmer avec le chiffre "
      "de l'ONEE [5] pour un document officiel."],
+    ["Tarif : 1,01 DH/kWh", "Économies", "Moyenne tension, heures pleines, TVA comprise [10]",
+     "À faire valider par Netis. Une entreprise qui récupère la TVA économise un peu moins. "
+     "L'ANRE prépare une nouvelle grille pour mars 2027."],
+    ["Part consommée sur place : 100 %", "Économies", "Hypothèse Netis : économies « maximales »",
+     "À remplacer par la consommation réelle, lue sur la facture du client."],
 ], [36, 21, 50, 63], marge=4))
 story.append(P("Tous les réglages se trouvent à un seul endroit de l'application "
                "(<font name='DVB'>services/solar.py</font>) et se modifient sans toucher au code."))
 
-story.append(P("7. Sources", "h1"))
-story.append(P("Consultées le 7 octobre 2026.", "petit"))
+story.append(P("8. Sources", "h1"))
+story.append(P("Consultées les 7 et 9 octobre 2026.", "petit"))
 sources = [
     ("[1]", "PVGIS – Photovoltaic Geographical Information System, Commission européenne, Centre commun "
      "de recherche (JRC). Outil en ligne et API v5.3 (calcul « PVcalc »).",
@@ -368,8 +405,12 @@ sources = [
      "https://github.com/microsoft/GlobalMLBuildingFootprints"),
     ("[8]", "MobileSAM – segmentation des toits sur l'image satellite (Esri).",
      "https://github.com/ChaoningZhang/MobileSAM"),
-    ("[9]", "Google Maps, via Apify (acteur compass/crawler-google-places) – nom, adresse, téléphone "
-     "et position des entreprises.", "https://apify.com/compass/crawler-google-places"),
+    ("[9]", "Google Maps, via Apify (acteur compass/crawler-google-places) ou lu directement par le "
+     "chatbot – nom, adresse, téléphone et position des entreprises.",
+     "https://apify.com/compass/crawler-google-places"),
+    ("[10]", "Challenge.ma, « Le vrai coût de l'électricité au Maroc » : tarifs moyenne tension des "
+     "industriels (0,74 / 1,01 / 1,42 DH/kWh TTC en heures creuses / pleines / de pointe).",
+     "https://www.challenge.ma/le-vrai-cout-de-lelectricite-au-maroc-321054/"),
 ]
 story.append(tableau([[r, f"{t}<br/><font color='#077ea3' size='7.5'>{u}</font>"] for r, t, u in sources],
                      [12, 158], entete=False, marge=4))

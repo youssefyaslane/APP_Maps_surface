@@ -619,7 +619,9 @@ function productionText(kwc, yieldKwhKwc) {
   if (!kwc || !yieldKwhKwc) return "";
   const mwh = (kwc * yieldKwhKwc) / 1000;
   const co2 = SOLAR ? ` — 🌱 ${Math.round(mwh * SOLAR.co2_t_per_mwh).toLocaleString("fr-FR")} t CO₂ évitées/an` : "";
-  return ` — ⚡ ${Math.round(mwh).toLocaleString("fr-FR")} MWh/an${co2}`;
+  const dh = SOLAR ? mwh * 1000 * SOLAR.autoconsommation * SOLAR.tarif_dh_per_kwh : 0;
+  const economies = dh ? ` — 💰 jusqu'à ${Math.round(dh).toLocaleString("fr-FR")} DH/an` : "";
+  return ` — ⚡ ${Math.round(mwh).toLocaleString("fr-FR")} MWh/an${co2}${economies}`;
 }
 
 function estimateSolarPanels(area_m2) {

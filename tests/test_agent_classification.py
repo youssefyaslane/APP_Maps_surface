@@ -223,7 +223,8 @@ TABLE = {"usine1": (True, 0.95), "stade": (False, 0.97), "doute": (True, 0.5)}
 
 
 def _potentiel_usine(place_ids):
-    return {"usine1": {"id": 6100, "kwc": 775.0, "production_mwh": 1121.4, "co2_t": 668.4}}
+    return {"usine1": {"id": 6100, "kwc": 775.0, "production_mwh": 1121.4, "co2_t": 668.4,
+                       "economies_dh": 1132614}}
 
 
 def _graphe(modele_classement, ecrire, calculer=_potentiel_usine):
@@ -255,6 +256,7 @@ def test_lancer_classe_ecrit_et_fait_le_bilan():
     # Outil 3 : le potentiel des entreprises ajoutées arrive dans le bilan.
     assert "775 kWc" in r["reponse"] and "1\u202f121 MWh par an" in r["reponse"]
     assert "Usine Atlas (775 kWc)" in r["reponse"]
+    assert "jusqu'à 1\u202f132\u202f614 DH d'économies par an" in r["reponse"]
     usine = next(l for l in r["resultats"] if l["place_id"] == "usine1")
     assert usine["kwc"] == 775.0 and usine["co2_t"] == 668.4
 
@@ -333,7 +335,8 @@ def test_outil_3_calcule_toit_puis_productible(monkeypatch):
     r = potentiel.calculer(["usine1"], connecter=Connexion,
                            recalculer_toits=lambda ids, workers: appels.append(("toits", ids, workers)))
     assert appels == [("toits", [6100], 6), ("pvgis", [6100])]
-    assert r == {"usine1": {"id": 6100, "kwc": 775.0, "production_mwh": 1121.4, "co2_t": 668.4}}
+    assert r == {"usine1": {"id": 6100, "kwc": 775.0, "production_mwh": 1121.4, "co2_t": 668.4,
+                            "economies_dh": 1132614}}
 
 
 def test_si_la_classification_echoue_rien_n_est_ecrit():

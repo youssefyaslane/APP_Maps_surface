@@ -70,7 +70,8 @@
       const nombre = (n) => Math.round(n).toLocaleString("fr-FR");
       const potentiel = r.kwc
         ? `☀️ ${nombre(r.kwc)} kWc${r.production_mwh ? ` · ⚡ ${nombre(r.production_mwh)} MWh/an` : ""}${
-            r.co2_t ? ` · 🌱 ${nombre(r.co2_t)} t CO₂/an` : ""}`
+            r.co2_t ? ` · 🌱 ${nombre(r.co2_t)} t CO₂/an` : ""}${
+            r.economies_dh ? ` · 💰 jusqu'à ${nombre(r.economies_dh)} DH/an` : ""}`
         : "";
       const detail = [potentiel, r.categorie, r.adresse].filter(Boolean).join(" · ");
       if (detail) {

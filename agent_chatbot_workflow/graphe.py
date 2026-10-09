@@ -139,11 +139,14 @@ def resume_potentiel(resultats):
     kwc = sum(r["kwc"] for r in avec_toit)
     mwh = sum(r.get("production_mwh") or 0 for r in avec_toit)
     co2 = sum(r.get("co2_t") or 0 for r in avec_toit)
+    dh = sum(r.get("economies_dh") or 0 for r in avec_toit)
     if not avec_toit:
         return " Aucun toit n'a été trouvé sous les nouvelles entreprises : à tracer sur la carte." + fin
     texte = f" Potentiel des nouvelles entreprises : {_fr(kwc)} kWc"
     if mwh:
         texte += f", {_fr(mwh)} MWh par an, {_fr(co2)} t de CO₂ évitées par an"
+    if dh:
+        texte += f", jusqu'à {_fr(dh)} DH d'économies par an"
     texte += ". À appeler en premier : " + ", ".join(
         f"{r['nom']} ({_fr(r['kwc'])} kWc)" for r in avec_toit[:APERCU]) + "."
     sans = len(ajoutees) - len(avec_toit)

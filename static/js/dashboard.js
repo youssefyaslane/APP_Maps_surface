@@ -71,6 +71,12 @@ function formatEnergy(mwh) {
   return mwh >= 1000 ? `${fmt(mwh / 1000, 1)} GWh` : `${fmt(mwh, 0)} MWh`;
 }
 
+// Montants en dirhams : en millions au-delà d'un million, pour rester lisible.
+function formatDh(dh) {
+  if (!dh) return "—";
+  return dh >= 1e6 ? `${fmt(dh / 1e6, 1)} M DH` : `${fmt(dh, 0)} DH`;
+}
+
 function renderStats(summary) {
   const threshold = summary.big_prospect_threshold;
   const cards = [
@@ -86,6 +92,7 @@ function renderStats(summary) {
     [fmt(summary.total_panels), "Panneaux estimés au total", null],
     [formatEnergy(summary.total_production_mwh), "Production estimée par an", null],
     [summary.total_co2_t ? `${fmt(summary.total_co2_t)} t` : "—", "CO₂ évité par an", null],
+    [formatDh(summary.total_economies_dh), "Économies max par an", null],
     [`${fmt(summary.avg_roof_area_m2, 0)} m²`, "Surface moyenne par toit", null],
     [
       fmt(summary.big_prospects),
@@ -124,8 +131,8 @@ function renderRows(prospects, startRank) {
   const equippedView = viewEl.value === "1";
   if (!prospects.length) {
     bodyEl.innerHTML = equippedView
-      ? `<tr><td colspan="14" class="empty">Aucune entreprise n'est marquée comme déjà équipée.</td></tr>`
-      : `<tr><td colspan="14" class="empty">
+      ? `<tr><td colspan="15" class="empty">Aucune entreprise n'est marquée comme déjà équipée.</td></tr>`
+      : `<tr><td colspan="15" class="empty">
       Aucun prospect ne correspond. Lancez <code>python -m scripts.compute_solar_potential</code>
       pour calculer le potentiel solaire des entreprises.
     </td></tr>`;
@@ -164,6 +171,7 @@ function renderRows(prospects, startRank) {
           <td class="num"><strong>${fmt(p.solar_kwc, 1)} kWc</strong></td>
           <td class="num">${p.production_mwh ? `${fmt(p.production_mwh, 0)} MWh/an` : "—"}</td>
           <td class="num">${p.co2_t ? `${fmt(p.co2_t, 0)} t/an` : "—"}</td>
+          <td class="num">${p.economies_dh ? `${formatDh(p.economies_dh)}/an` : "—"}</td>
           <td>${sourceBadge(p.roof_source)}</td>
           <td class="roof-status">${roofStatus}</td>
           <td>${pvBadge(p.pv)}</td>
@@ -212,7 +220,7 @@ function renderPagination(totalFiltered) {
 }
 
 async function load() {
-  bodyEl.innerHTML = `<tr><td colspan="14" class="empty">Chargement...</td></tr>`;
+  bodyEl.innerHTML = `<tr><td colspan="15" class="empty">Chargement...</td></tr>`;
   const params = currentFilters();
   exportEl.href = `/api/prospects.csv?${params.toString()}`;
 
@@ -237,7 +245,7 @@ async function load() {
       : "";
     resultCountEl.textContent = `${fmt(start)}–${fmt(end)} sur ${fmt(data.total_filtered)} ${label}${hidden}`;
   } catch (err) {
-    bodyEl.innerHTML = `<tr><td colspan="14" class="empty">Erreur de chargement : ${escapeHtml(err.message)}</td></tr>`;
+    bodyEl.innerHTML = `<tr><td colspan="15" class="empty">Erreur de chargement : ${escapeHtml(err.message)}</td></tr>`;
     paginationEl.innerHTML = "";
   }
 }

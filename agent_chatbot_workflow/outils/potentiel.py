@@ -8,7 +8,7 @@ Même calcul que scripts/compute_solar_potential.py, limité à ces entreprises 
 Le bilan du chatbot donne ainsi directement les kWc, sans commande à lancer.
 """
 from services import db, pvgis
-from services.solar import co2_evite_t, production_mwh
+from services.solar import co2_evite_t, economies_dh, production_mwh
 from services.toits import _recompute_solar_for_companies
 
 RECHERCHES_PARALLELES = 6   # comme le calcul en masse : l'appel Overpass domine
@@ -51,5 +51,6 @@ def calculer(place_ids, connecter=None, recalculer_toits=None):
             "kwc": kwc or 0.0,
             "production_mwh": mwh,
             "co2_t": co2_evite_t(mwh),
+            "economies_dh": economies_dh(mwh),
         }
     return resultat

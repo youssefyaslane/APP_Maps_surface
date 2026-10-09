@@ -46,7 +46,8 @@ def test_config_expose_les_trois_hypotheses_a_la_carte():
     # static/js/app.js suive ferait réapparaître silencieusement deux estimations
     # différentes pour le même toit.
     cfg = solar.config()
-    assert set(cfg) == {"panel_area_m2", "panel_power_w", "usable_roof_fraction", "co2_t_per_mwh"}
+    assert set(cfg) == {"panel_area_m2", "panel_power_w", "usable_roof_fraction", "co2_t_per_mwh",
+                        "tarif_dh_per_kwh", "autoconsommation"}
     assert all(v > 0 for v in cfg.values())
 
 

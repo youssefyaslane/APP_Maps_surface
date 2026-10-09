@@ -261,7 +261,9 @@ Le **productible** dépend de l'ensoleillement du lieu. Il est demandé à [PVGI
 
 **CO₂ évité par an** = production (MWh/an) × facteur d'émission du réseau marocain, **0,596 t de CO₂ par MWh** par défaut (2025, d'après les données de l'Agence internationale de l'énergie ; variable `SOLAR_CO2_T_PER_MWH`). Chaque MWh produit sur le toit n'est plus acheté au réseau, encore à 76 % fossile. Le facteur baisse d'année en année : pour un document officiel, reprendre celui publié par l'ONEE.
 
-La production et le CO₂ évité apparaissent au tableau de bord (colonnes « Production » et « CO₂ évité », cartes « Production estimée par an » et « CO₂ évité par an »), dans l'export CSV (production, productible et CO₂), et sur la carte (survol d'une entreprise et fiche).
+**Économies maximales par an** = production (kWh/an) × part consommée sur place × tarif. Tarif par défaut **1,01 DH/kWh** : moyenne tension, heures pleines, TVA comprise (Challenge.ma ; 0,74 en heures creuses, 1,42 en pointe), quand les panneaux produisent (`SOLAR_TARIF_DH_PER_KWH`, à faire valider par Netis). Part consommée sur place : **100 %** par défaut (`SOLAR_AUTOCONSOMMATION`), d'où des économies « maximales » — la consommation réelle des entreprises n'est pas connue avant leur facture. Le retour sur investissement attend le prix moyen d'une installation (DH par kWc).
+
+La production, le CO₂ évité et les économies apparaissent au tableau de bord (colonnes « Production », « CO₂ évité » et « Économies max », cartes correspondantes en haut), dans l'export CSV (production, productible, CO₂ et économies), et sur la carte (survol d'une entreprise et fiche).
 
 `compute_solar_potential.py` reste utile après un import en masse de nouvelles entreprises, ou pour un recalcul global.
 

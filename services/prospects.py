@@ -7,7 +7,7 @@ import psycopg2
 
 from services.comptes import _log_audit
 from services.etat_base import _get_db_pool
-from services.solar import SOLAR_CO2_T_PER_MWH, co2_evite_t, production_mwh
+from services.solar import SOLAR_CO2_T_PER_MWH, co2_evite_t, economies_dh, production_mwh
 from services.toits import ROOF_LOOKUP_RADIUS_DEG
 
 def _landing_stats():
@@ -266,6 +266,7 @@ def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=
         prospect = dict(zip(columns, row[:len(columns)]))
         prospect["production_mwh"] = production_mwh(prospect["solar_kwc"], prospect["solar_yield_kwh_kwc"])
         prospect["co2_t"] = co2_evite_t(prospect["production_mwh"])
+        prospect["economies_dh"] = economies_dh(prospect["production_mwh"])
         prospect["pv"] = _pv_detection(*row[len(columns):])
         prospects.append(prospect)
     return prospects
@@ -329,6 +330,7 @@ def _prospects_summary():
         "total_panels": int(total_panels),
         "total_production_mwh": round(float(total_mwh)),
         "total_co2_t": round(float(total_mwh) * SOLAR_CO2_T_PER_MWH),
+        "total_economies_dh": economies_dh(float(total_mwh)) or 0,
         "avg_roof_area_m2": round(float(avg_area), 1),
         "big_prospects": big,
         "big_prospect_threshold": BIG_PROSPECT_KWC,

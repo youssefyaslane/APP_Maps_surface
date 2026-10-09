@@ -158,3 +158,9 @@ def test_co2_evite():
     # J.J.W : 1 121,4 MWh × 0,596 t/MWh = 668,4 t de CO₂ évitées par an.
     assert solar.co2_evite_t(1121.4) == pytest.approx(668.4)
     assert solar.co2_evite_t(None) is None
+
+
+def test_economies_maximales():
+    # J.J.W : 1 121,4 MWh = 1 121 400 kWh × 100 % × 1,01 DH = 1 132 614 DH par an.
+    assert solar.economies_dh(1121.4) == 1132614
+    assert solar.economies_dh(None) is None

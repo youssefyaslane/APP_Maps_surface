@@ -76,6 +76,17 @@ SOLAR_MOUNTING = os.environ.get("SOLAR_MOUNTING", "building").strip() or "buildi
 # du chiffre publié par l'ONEE pour un document officiel.
 SOLAR_CO2_T_PER_MWH = _env_float("SOLAR_CO2_T_PER_MWH", 0.596)
 
+# Économies maximales : chaque kWh produit et consommé sur place n'est plus
+# acheté au réseau. Tarif moyenne tension des industriels en heures pleines,
+# 1,01 DH/kWh TTC (0,74 en heures creuses, 1,42 en pointe, d'après Challenge.ma) :
+# les panneaux produisent en journée, surtout en heures pleines. À faire
+# valider par Netis ; l'ANRE prépare une nouvelle grille pour mars 2027.
+SOLAR_TARIF_DH_PER_KWH = _env_float("SOLAR_TARIF_DH_PER_KWH", 1.01)
+# Part de la production consommée sur place : inconnue sans la facture du
+# client. 100 % par défaut, d'où des économies « maximales » : une usine
+# consomme surtout le jour et souvent plus que son toit ne produit.
+SOLAR_AUTOCONSOMMATION = _env_float("SOLAR_AUTOCONSOMMATION", 1.0)
+
 
 def estimate_solar(area_m2):
     """(nombre de panneaux, puissance en kWc) installables sur cette surface.
@@ -104,6 +115,13 @@ def co2_evite_t(production):
     return round(production * SOLAR_CO2_T_PER_MWH, 1)
 
 
+def economies_dh(production):
+    """Économies maximales par an (DH) pour une production annuelle en MWh."""
+    if not production:
+        return None
+    return round(production * 1000 * SOLAR_AUTOCONSOMMATION * SOLAR_TARIF_DH_PER_KWH)
+
+
 def config():
     """Hypothèses transmises au navigateur, pour que la carte calcule la même
     chose que le serveur au lieu de redéfinir ses propres constantes."""
@@ -112,4 +130,6 @@ def config():
         "panel_power_w": SOLAR_PANEL_POWER_W,
         "usable_roof_fraction": SOLAR_USABLE_ROOF_FRACTION,
         "co2_t_per_mwh": SOLAR_CO2_T_PER_MWH,
+        "tarif_dh_per_kwh": SOLAR_TARIF_DH_PER_KWH,
+        "autoconsommation": SOLAR_AUTOCONSOMMATION,
     }
