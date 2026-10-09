@@ -12,7 +12,7 @@ prête ne change rien.
 # Ordre de copie : une table n'arrive qu'après celles qu'elle référence
 # (ia_segments.created_by et audit_log.user_id pointent sur users).
 COPY_ORDER = ("users", "companies", "ia_segments", "ms_buildings", "osm_buildings", "audit_log",
-              "pv_detections", "crm_notes")
+              "pv_detections", "crm_notes", "opportunites", "opportunite_etapes", "decideurs", "visites")
 
 # Sans elles, l'application ne fonctionne pas. osm_buildings est facultative :
 # tant qu'elle est vide ou absente, les bâtiments viennent d'Overpass.
@@ -21,7 +21,8 @@ REQUIRED_TABLES = ("users", "companies", "ia_segments", "ms_buildings", "audit_l
 # Tables à identifiant SERIAL. Une copie qui conserve les identifiants laisse
 # leur séquence à 1 : sans recalage, le premier compte ou le premier toit créé
 # sur la nouvelle base réutiliserait un identifiant déjà copié.
-SERIAL_TABLES = ("users", "companies", "ia_segments", "ms_buildings", "audit_log", "crm_notes")
+SERIAL_TABLES = ("users", "companies", "ia_segments", "ms_buildings", "audit_log", "crm_notes",
+                 "opportunites", "opportunite_etapes", "decideurs", "visites")
 
 # Clé par laquelle la synchronisation rapproche une ligne de sa copie. `id`
 # partout, sauf pour les bâtiments OSM, identifiés par leur numéro OSM, et les
@@ -81,6 +82,74 @@ def create_pv_detections(cur):
     # (règle dans scripts/panneaux/classer_panneaux_yolo.py). Détecté mais non
     # confirmé par cette règle : le toit s'affiche « Non ».
     cur.execute("ALTER TABLE pv_detections ADD COLUMN IF NOT EXISTS dark_score REAL NOT NULL DEFAULT 0")
+
+
+# Colonnes du CRM ajoutées un temps à companies (9 octobre 2026), avant qu'il
+# n'ait ses propres tables.
+ANCIENNES_COLONNES_CRM = (
+    "crm_statut", "crm_raison_perte", "crm_commercial_id", "crm_pris_le", "crm_relance_le",
+    "crm_relance_objet", "crm_maj_le", "decideur_nom", "decideur_fonction", "decideur_telephone",
+    "decideur_email", "visite_conso_kwh_an", "visite_etat_toiture", "visite_inclinaison",
+    "visite_orientation", "visite_productible",
+)
+
+
+def _migrer_crm_hors_de_companies(cur):
+    """Déplace le suivi commercial des anciennes colonnes de companies vers
+    ses tables, puis retire ces colonnes. Dans la transaction du démarrage :
+    tout passe, ou rien. Sans effet une fois fait (les colonnes n'existent plus)."""
+    cur.execute(
+        """
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'companies' AND column_name = 'crm_statut'
+        """
+    )
+    if cur.fetchone() is None:
+        return
+    cur.execute(
+        """
+        INSERT INTO opportunites (company_id, commercial_id, statut, raison_perte, relance_le,
+                                  relance_objet, pris_le, maj_le)
+        SELECT id, crm_commercial_id, COALESCE(crm_statut, 'a_contacter'), crm_raison_perte,
+               crm_relance_le, crm_relance_objet, crm_pris_le, COALESCE(crm_maj_le, now())
+        FROM companies
+        WHERE crm_commercial_id IS NOT NULL OR crm_statut IS NOT NULL OR crm_relance_le IS NOT NULL
+        ON CONFLICT (company_id) DO NOTHING
+        """
+    )
+    # Historique du pipeline : repris du journal (prise, puis chaque changement d'étape).
+    cur.execute(
+        """
+        INSERT INTO opportunite_etapes (opportunite_id, etape, raison_perte, user_id, le)
+        SELECT o.id,
+               CASE WHEN a.action = 'crm_pris' THEN 'a_contacter' ELSE a.details->>'vers' END,
+               CASE WHEN a.action = 'crm_statut' THEN a.details->>'raison' END,
+               a.user_id, a.created_at
+        FROM audit_log a JOIN opportunites o ON o.company_id = a.entity_id
+        WHERE a.entity = 'companies' AND a.action IN ('crm_pris', 'crm_statut')
+          AND NOT EXISTS (SELECT 1 FROM opportunite_etapes e WHERE e.opportunite_id = o.id)
+        """
+    )
+    cur.execute(
+        """
+        INSERT INTO decideurs (company_id, nom, fonction, telephone, email)
+        SELECT id, decideur_nom, decideur_fonction, decideur_telephone, decideur_email FROM companies
+        WHERE COALESCE(decideur_nom, decideur_fonction, decideur_telephone, decideur_email) IS NOT NULL
+        """
+    )
+    cur.execute(
+        """
+        INSERT INTO visites (company_id, conso_kwh_an, etat_toiture, inclinaison, orientation, productible)
+        SELECT id, visite_conso_kwh_an, visite_etat_toiture, visite_inclinaison, visite_orientation,
+               visite_productible
+        FROM companies
+        WHERE COALESCE(visite_conso_kwh_an, visite_inclinaison, visite_orientation) IS NOT NULL
+           OR visite_etat_toiture IS NOT NULL
+        """
+    )
+    cur.execute(
+        "ALTER TABLE companies " + ", ".join(f"DROP COLUMN IF EXISTS {c}" for c in ANCIENNES_COLONNES_CRM)
+    )
 
 
 def create_all(cur):
@@ -263,38 +332,89 @@ def create_all(cur):
         )
         """
     )
-    # CRM des commerciaux (services/crm.py). Le suivi de chaque prospect vit
-    # sur sa ligne : étape de vente (NULL = « à contacter »), commercial qui
-    # l'a pris, prochaine relance, décideur, et ce qui a été constaté lors de
-    # la visite — consommation lue sur la facture, état de la toiture, vraie
-    # pente et orientation des panneaux.
+    # CRM des commerciaux (services/crm.py), dans ses propres tables : la
+    # table companies ne décrit que l'entreprise et son potentiel.
+    #   opportunites        une par entreprise prise : commercial, étape,
+    #                       raison de perte, prochaine relance ;
+    #   opportunite_etapes  historique du pipeline (étape, qui, quand) ;
+    #   decideurs           contacts de l'entreprise ;
+    #   visites             chaque visite : consommation lue sur la facture,
+    #                       état de la toiture, vraie pente et orientation.
     cur.execute(
         """
-        ALTER TABLE companies
-            ADD COLUMN IF NOT EXISTS crm_statut TEXT,
-            ADD COLUMN IF NOT EXISTS crm_raison_perte TEXT,
-            ADD COLUMN IF NOT EXISTS crm_commercial_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-            ADD COLUMN IF NOT EXISTS crm_pris_le TIMESTAMPTZ,
-            ADD COLUMN IF NOT EXISTS crm_relance_le DATE,
-            ADD COLUMN IF NOT EXISTS crm_relance_objet TEXT,
-            ADD COLUMN IF NOT EXISTS crm_maj_le TIMESTAMPTZ,
-            ADD COLUMN IF NOT EXISTS decideur_nom TEXT,
-            ADD COLUMN IF NOT EXISTS decideur_fonction TEXT,
-            ADD COLUMN IF NOT EXISTS decideur_telephone TEXT,
-            ADD COLUMN IF NOT EXISTS decideur_email TEXT,
-            ADD COLUMN IF NOT EXISTS visite_conso_kwh_an DOUBLE PRECISION,
-            ADD COLUMN IF NOT EXISTS visite_etat_toiture TEXT,
-            ADD COLUMN IF NOT EXISTS visite_inclinaison DOUBLE PRECISION,
-            ADD COLUMN IF NOT EXISTS visite_orientation DOUBLE PRECISION,
-            ADD COLUMN IF NOT EXISTS visite_productible DOUBLE PRECISION
+        CREATE TABLE IF NOT EXISTS opportunites (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL UNIQUE REFERENCES companies(id) ON DELETE CASCADE,
+            commercial_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            statut TEXT NOT NULL DEFAULT 'a_contacter',
+            raison_perte TEXT,
+            relance_le DATE,
+            relance_objet TEXT,
+            pris_le TIMESTAMPTZ,
+            cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+            maj_le TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_opportunites_commercial ON opportunites (commercial_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_opportunites_relance ON opportunites (relance_le)")
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS opportunite_etapes (
+            id SERIAL PRIMARY KEY,
+            opportunite_id INTEGER NOT NULL REFERENCES opportunites(id) ON DELETE CASCADE,
+            etape TEXT NOT NULL,
+            raison_perte TEXT,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            le TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
+    )
+    # Chaque ligne garde aussi la prochaine action prévue à ce moment, et le
+    # commentaire du commercial (ajoutés le 9 octobre 2026).
+    cur.execute(
+        """
+        ALTER TABLE opportunite_etapes
+            ADD COLUMN IF NOT EXISTS relance_le DATE,
+            ADD COLUMN IF NOT EXISTS relance_objet TEXT,
+            ADD COLUMN IF NOT EXISTS commentaire TEXT
         """
     )
     cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_companies_crm_commercial ON companies (crm_commercial_id)"
+        "CREATE INDEX IF NOT EXISTS idx_opportunite_etapes_opp ON opportunite_etapes (opportunite_id, le)"
     )
     cur.execute(
-        "CREATE INDEX IF NOT EXISTS idx_companies_crm_relance ON companies (crm_relance_le)"
+        """
+        CREATE TABLE IF NOT EXISTS decideurs (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            nom TEXT,
+            fonction TEXT,
+            telephone TEXT,
+            email TEXT,
+            cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+            maj_le TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
     )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_decideurs_company ON decideurs (company_id)")
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS visites (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            le TIMESTAMPTZ NOT NULL DEFAULT now(),
+            conso_kwh_an DOUBLE PRECISION,
+            etat_toiture TEXT,
+            inclinaison DOUBLE PRECISION,
+            orientation DOUBLE PRECISION,
+            productible DOUBLE PRECISION
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_visites_company ON visites (company_id, le)")
+    _migrer_crm_hors_de_companies(cur)
     # Notes des commerciaux (appels, visites, échanges), datées et signées.
     cur.execute(
         """

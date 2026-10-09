@@ -19,6 +19,15 @@ window.CRM = (() => {
     : Number(n).toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d }));
   const dh = (n) => (n ? `${nb(n)} DH` : "—");
   const date = (iso) => new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+  const jourCourt = (iso) => new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  // Temps passé depuis une date : « aujourd'hui », « 3 j », « 5 sem. », « 2 mois ».
+  const duree = (iso) => {
+    const jours = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+    if (jours < 1) return "aujourd'hui";
+    if (jours < 14) return `${jours} j`;
+    if (jours < 60) return `${Math.floor(jours / 7)} sem.`;
+    return `${Math.floor(jours / 30)} mois`;
+  };
   const quand = (iso) => new Date(iso).toLocaleString("fr-FR", {
     day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
   });
@@ -150,8 +159,29 @@ window.CRM = (() => {
         <p class="crm-aide">Sans date, aucune relance n'est prévue.</p>
       </div>
       <p class="crm-aide crm-clos" hidden>Prospect signé ou perdu : pas de prochaine action.</p>
+      <label class="crm-champ">Commentaire
+        <textarea name="commentaire" rows="2" placeholder="Ce qui s'est passé, ce qui a été convenu… (gardé dans l'historique du pipeline)"></textarea>
+      </label>
       <p class="crm-a-enregistrer" hidden>Étape modifiée, pas encore enregistrée. L'ancienne relance concernait l'étape d'avant : indiquez la prochaine action, ou laissez vide.</p>
-      <button type="button" class="crm-btn principal" data-action="suivi">Enregistrer le suivi</button>`;
+      <button type="button" class="crm-btn principal" data-action="suivi">Enregistrer le suivi</button>
+      ${historiquePipeline(f)}`;
+  }
+
+  // Historique du pipeline : chaque enregistrement du suivi, avec l'étape, la
+  // prochaine action prévue à ce moment et le commentaire du commercial.
+  function historiquePipeline(f) {
+    const lignes = f.parcours.lignes || [];
+    if (!lignes.length) return "";
+    return `<h4>Historique du pipeline</h4>
+      <ol class="crm-chronologie">${lignes.map((l) => `
+        <li class="${l.changement ? "changement" : ""} etape-${esc(l.etape)}">
+          <span class="crm-chrono-tete">
+            <b>${esc(ref.statuts[l.etape] || l.etape)}${l.raison_perte ? ` · ${esc(ref.raisons_perte[l.raison_perte] || l.raison_perte)}` : ""}</b>
+            <span>${quand(l.le)}${l.auteur ? ` · ${esc(l.auteur)}` : ""}</span>
+          </span>
+          ${l.relance ? `<span class="crm-chrono-action">${icone("horloge")} Prochaine action : ${date(l.relance.le)}${l.relance.objet ? ` · ${esc(l.relance.objet)}` : ""}</span>` : ""}
+          ${l.commentaire ? `<p>${esc(l.commentaire).replace(/\n/g, "<br>")}</p>` : ""}
+        </li>`).join("")}</ol>`;
   }
 
   function blocDecideur(f) {
@@ -209,17 +239,28 @@ window.CRM = (() => {
     const etapes = parcours.map((etape, i) => {
       const etat = f.statut === "signe" || (rang >= 0 && i < rang) ? "fait"
         : i === rang ? "actuel" : f.statut === "perdu" ? "abandon" : "avenir";
+      // Historique du pipeline : date d'arrivée dans l'étape, et qui l'a franchie.
+      const passage = f.parcours.etapes[etape];
+      const titre = passage
+        ? `${ref.statuts[etape]} — le ${date(passage.le)}${passage.auteur ? `, par ${passage.auteur}` : ""}`
+        : ref.statuts[etape];
+      const reperes = etat === "actuel" && f.parcours.etape_depuis
+        ? `depuis ${duree(f.parcours.etape_depuis)}`
+        : passage && etat === "fait" ? jourCourt(passage.le) : "";
       return `<li class="crm-pas ${etat}">
-        <button type="button" data-etape="${etape}"${ref.admin ? " disabled" : ""} title="${esc(ref.statuts[etape])}">
+        <button type="button" data-etape="${etape}"${ref.admin ? " disabled" : ""} title="${esc(titre)}">
           <span class="crm-pastille">${etat === "fait" ? icone("valide") : i + 1}</span>
           <span class="crm-pas-nom">${esc(ref.statuts[etape])}</span>
+          ${reperes ? `<span class="crm-pas-date">${esc(reperes)}</span>` : ""}
         </button></li>`;
     }).join("");
+    const fin = f.parcours.etapes[f.statut];
+    const finDate = fin ? `<span class="crm-pas-date">${esc(jourCourt(fin.le))}</span>` : "";
     const issue = f.statut === "signe"
-      ? `<li class="crm-pas issue gagne"><span class="crm-pastille">${icone("valide")}</span><span class="crm-pas-nom">Signé</span></li>`
+      ? `<li class="crm-pas issue gagne"><span class="crm-pastille">${icone("valide")}</span><span class="crm-pas-nom">Signé</span>${finDate}</li>`
       : f.statut === "perdu"
         ? `<li class="crm-pas issue perdu"><span class="crm-pastille">${icone("fermer")}</span><span class="crm-pas-nom">Perdu${
-            f.raison_perte ? ` · ${esc(ref.raisons_perte[f.raison_perte])}` : ""}</span></li>`
+            f.raison_perte ? ` · ${esc(ref.raisons_perte[f.raison_perte])}` : ""}</span>${finDate}</li>`
         : `<li class="crm-pas issue avenir"><span class="crm-pastille">${icone("valide")}</span><span class="crm-pas-nom">Signé</span></li>`;
     return `<ol class="crm-pipeline" aria-label="Étapes de l'opportunité">${etapes}${issue}</ol>`;
   }
@@ -344,6 +385,7 @@ window.CRM = (() => {
           raison: v.raison || null,
           relance_le: clos ? null : v.relance_le || null,
           relance_objet: clos ? null : v.relance_objet,
+          commentaire: v.commentaire || null,
         }, b);
       },
       decideur: (b) => envoyer("decideur", valeurs("decideur"), b),
@@ -363,5 +405,5 @@ window.CRM = (() => {
     if (e.key === "Escape" && !fiche.hidden) fermer();
   });
 
-  return { ouvrir, references, entrees: (nom) => entrees(nom), libelleStatut: (s) => ref?.statuts?.[s] || s };
+  return { ouvrir, references, duree, entrees: (nom) => entrees(nom), libelleStatut: (s) => ref?.statuts?.[s] || s };
 })();

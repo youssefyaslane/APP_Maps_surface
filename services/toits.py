@@ -248,8 +248,10 @@ def _query_companies(bbox):
                 """
                 SELECT c.id, c.name, c.category, c.address, c.city, c.phone, c.email, c.website,
                        c.rating, c.lon, c.lat, c.roof_area_m2, c.solar_kwc, c.equipped_at,
-                       c.solar_yield_kwh_kwc, c.crm_commercial_id, COALESCE(u.display_name, u.username)
-                FROM companies c LEFT JOIN users u ON u.id = c.crm_commercial_id
+                       c.solar_yield_kwh_kwc, o.commercial_id, COALESCE(u.display_name, u.username)
+                FROM companies c
+                LEFT JOIN opportunites o ON o.company_id = c.id
+                LEFT JOIN users u ON u.id = o.commercial_id
                 WHERE c.lat BETWEEN %s AND %s AND c.lon BETWEEN %s AND %s
                 """,
                 (south, north, west, east),

@@ -35,6 +35,11 @@ docker compose exec web python -m scripts.compute_solar_potential --production  
 docker compose exec web python -m agent_chatbot_workflow
 ```
 
+**Régénérer le PDF du schéma de la base** (`docs/Schema_base_de_donnees.pdf` : chaque table et colonne expliquée ; hors conteneur, à mettre à jour avec services/schema.py)
+```bash
+python3 scripts/pdf_schema_base.py
+```
+
 **Régénérer le PDF des calculs** (`docs/Calculs_potentiel_solaire.pdf` : formules, exemples, sources ; hors conteneur, chiffres à mettre à jour dans le script)
 ```bash
 python3 scripts/pdf_calculs.py
@@ -231,9 +236,10 @@ Le suivi vit sur une page à part, **« Mes opportunités »** pour un commercia
   - **Prochaine action**, enregistrée avec l'étape par un seul bouton : date et objet (proposé selon l'étape : « Fixer un rendez-vous », « Envoyer le devis »…). Changer d'étape sans nouvelle date efface l'ancienne relance, qui concernait l'étape d'avant ; pas de relance dans le passé, ni pour un prospect signé ou perdu
   - **Décideur** : nom, fonction, téléphone, e-mail
   - **Visite** : consommation annuelle lue sur la facture — elle remplace les économies maximales par les **économies réelles** (seule la production consommée sur place compte) —, état de la toiture, vraie inclinaison et orientation des panneaux, qui redemandent le productible à PVGIS
+  - **Commentaire** facultatif à chaque enregistrement du suivi, et **historique du pipeline** dans la partie Suivi : chaque enregistrement avec son étape, sa prochaine action et son commentaire
   - **Notes** datées et signées, et **historique** de toutes les actions sur l'entreprise (tiré de `audit_log`, où chaque geste est noté dans la même transaction)
 
-L'export CSV des prospects indique qui suit chacun (« Pris par »). Données : colonnes `crm_*`, `decideur_*` et `visite_*` de `companies`, table `crm_notes` ; règles dans `services/crm.py`, routes dans `web/crm.py`, page `templates/suivi.html` et `static/js/suivi.js`, fiche `static/js/crm.js`.
+L'export CSV des prospects indique qui suit chacun (« Pris par »). Données : tables dédiées, reliées à l'entreprise — `opportunites` (une par entreprise prise : commercial, étape, raison de perte, prochaine relance), `opportunite_etapes` (historique du pipeline : une ligne par enregistrement du suivi — étape, prochaine action, commentaire, qui, quand), `decideurs`, `visites` (une ligne par visite) et `crm_notes` ; `companies` ne décrit que l'entreprise et son potentiel ; règles dans `services/crm.py`, routes dans `web/crm.py`, page `templates/suivi.html` et `static/js/suivi.js`, fiche `static/js/crm.js`.
 
 ### Calculer le potentiel solaire
 

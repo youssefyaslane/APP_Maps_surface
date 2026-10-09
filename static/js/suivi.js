@@ -67,6 +67,7 @@
       <button type="button" class="op-carte etape-${esc(o.statut)}" data-id="${o.id}">
         <span class="op-nom">${esc(o.name)}</span>
         <span class="op-lieu">${esc([o.city, o.category].filter(Boolean).join(" · ") || "—")}</span>
+        ${o.etape_depuis ? `<span class="op-depuis" title="Dans cette étape depuis le ${esc(jour(o.etape_depuis))}">${icone("horloge")} Dans l'étape depuis ${esc(CRM.duree(o.etape_depuis))}</span>` : ""}
         <span class="op-chiffres">
           <span>${icone("soleil")} ${o.solar_kwc ? kwc(o.solar_kwc) : "Sans toit"}</span>
           ${economies(o) ? `<span>${icone("billet")} ${dh(economies(o))}</span>` : ""}

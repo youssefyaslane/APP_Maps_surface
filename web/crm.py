@@ -86,7 +86,7 @@ def api_crm_suivi(company_id):
     data = _corps()
     return _repondre(company_id, lambda: crm.mettre_a_jour_suivi(
         company_id, data.get("statut"), data.get("raison"), data.get("relance_le"),
-        data.get("relance_objet"), *_qui()))
+        data.get("relance_objet"), *_qui(), commentaire=data.get("commentaire")))
 
 
 @bp.route("/api/crm/<int:company_id>/decideur", methods=["POST"])

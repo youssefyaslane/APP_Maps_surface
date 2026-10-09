@@ -11,8 +11,10 @@ entreprise avance dans le pipeline :
 
 « Perdu » demande une raison ; « Déjà équipée » en est une, et reste liée au
 bouton historique du même nom (equipped_at) : l'entreprise sort alors de la
-liste des prospects. Chaque geste est noté dans audit_log, dans la même
-transaction que le changement qu'il décrit : la fiche en tire son historique.
+liste des prospects. Les données vivent dans leurs propres tables (voir services/schema.py) :
+opportunites, opportunite_etapes (historique du pipeline), decideurs, visites
+et crm_notes ; companies ne décrit que l'entreprise. Chaque geste est aussi
+noté dans audit_log, dans la même transaction que le changement qu'il décrit.
 
 Après une visite, la consommation lue sur la facture remplace l'hypothèse des
 économies « maximales » (100 % consommé sur place), et la vraie pente des
@@ -94,30 +96,82 @@ def _nombre(valeur, minimum=None, maximum=None, nom="valeur"):
     return n
 
 
+# Dernier décideur et dernière visite d'une entreprise : leurs tables en
+# gardent plusieurs, la fiche montre le plus récent.
+DERNIER_DECIDEUR = """
+    LEFT JOIN LATERAL (
+        SELECT nom, fonction, telephone, email FROM decideurs d
+        WHERE d.company_id = c.id ORDER BY d.maj_le DESC, d.id DESC LIMIT 1
+    ) dec ON true"""
+DERNIERE_VISITE = """
+    LEFT JOIN LATERAL (
+        SELECT conso_kwh_an, etat_toiture, inclinaison, orientation, productible, le FROM visites v
+        WHERE v.company_id = c.id ORDER BY v.le DESC, v.id DESC LIMIT 1
+    ) vis ON true"""
+
+
 def _verrouiller(cur, company_id):
-    """La ligne de l'entreprise, verrouillée jusqu'à la fin de la transaction :
-    deux commerciaux qui prennent le même prospect au même instant ne peuvent
-    pas l'obtenir tous les deux."""
+    """L'entreprise et son opportunité, verrouillées jusqu'à la fin de la
+    transaction : deux commerciaux qui prennent le même prospect au même
+    instant ne peuvent pas l'obtenir tous les deux."""
+    cur.execute("SELECT id, name, equipped_at FROM companies WHERE id = %s FOR UPDATE", (company_id,))
+    entreprise = cur.fetchone()
+    if entreprise is None:
+        raise ErreurCRM("Entreprise introuvable.", 404)
     cur.execute(
         """
-        SELECT id, name, crm_commercial_id, crm_statut, equipped_at, crm_raison_perte,
-               crm_relance_le, crm_relance_objet
-        FROM companies WHERE id = %s FOR UPDATE
+        SELECT id, commercial_id, statut, raison_perte, relance_le, relance_objet
+        FROM opportunites WHERE company_id = %s FOR UPDATE
         """,
         (company_id,),
     )
-    ligne = cur.fetchone()
-    if ligne is None:
-        raise ErreurCRM("Entreprise introuvable.", 404)
-    return {"id": ligne[0], "name": ligne[1], "commercial_id": ligne[2],
-            "statut": ligne[3] or "a_contacter", "equipee": ligne[4] is not None,
-            "raison": ligne[5], "relance_le": ligne[6], "relance_objet": ligne[7]}
+    o = cur.fetchone() or (None, None, "a_contacter", None, None, None)
+    return {"id": entreprise[0], "name": entreprise[1], "equipee": entreprise[2] is not None,
+            "opp_id": o[0], "commercial_id": o[1], "statut": o[2], "raison": o[3],
+            "relance_le": o[4], "relance_objet": o[5]}
 
 
-def _maj(cur, company_id, champs):
+def _etape(cur, opp_id, etape, raison, user_id, relance_le=None, relance_objet=None, commentaire=None):
+    """Une ligne de l'historique du pipeline : l'étape, la prochaine action
+    prévue à ce moment, et le commentaire du commercial."""
+    cur.execute(
+        """
+        INSERT INTO opportunite_etapes (opportunite_id, etape, raison_perte, user_id, relance_le,
+                                        relance_objet, commentaire)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """,
+        (opp_id, etape, raison, user_id, relance_le, relance_objet, commentaire),
+    )
+
+
+def _attribuer(cur, ligne, user_id):
+    """Donne l'opportunité à ce commercial ; la crée à la première prise. Une
+    opportunité libérée garde ses notes, son décideur et son historique."""
+    if ligne["opp_id"] is None:
+        cur.execute(
+            "INSERT INTO opportunites (company_id, commercial_id, pris_le) VALUES (%s, %s, now()) RETURNING id",
+            (ligne["id"], user_id),
+        )
+        ligne["opp_id"] = cur.fetchone()[0]
+        _etape(cur, ligne["opp_id"], "a_contacter", None, user_id)
+    else:
+        cur.execute(
+            "UPDATE opportunites SET commercial_id = %s, pris_le = now(), maj_le = now() WHERE id = %s",
+            (user_id, ligne["opp_id"]),
+        )
+    _log_audit(cur, user_id, "crm_pris", "companies", ligne["id"], {"name": ligne["name"]})
+    ligne["commercial_id"] = user_id
+
+
+def _maj(cur, ligne, champs):
     colonnes = ", ".join(f"{c} = %s" for c in champs)
-    cur.execute(f"UPDATE companies SET {colonnes}, crm_maj_le = now() WHERE id = %s",
-                (*champs.values(), company_id))
+    cur.execute(f"UPDATE opportunites SET {colonnes}, maj_le = now() WHERE id = %s",
+                (*champs.values(), ligne["opp_id"]))
+
+
+def _toucher(cur, ligne):
+    """Dernière action sur l'opportunité (tri de la page de suivi)."""
+    cur.execute("UPDATE opportunites SET maj_le = now() WHERE id = %s", (ligne["opp_id"],))
 
 
 def _executer(company_id, action, user_id=None, is_admin=False, controler=True):
@@ -136,12 +190,7 @@ def _executer(company_id, action, user_id=None, is_admin=False, controler=True):
                 if ligne["commercial_id"] not in (None, user_id):
                     raise ErreurCRM("Ce prospect est suivi par un autre commercial.", 403)
                 if ligne["commercial_id"] is None:
-                    cur.execute(
-                        "UPDATE companies SET crm_commercial_id = %s, crm_pris_le = now() WHERE id = %s",
-                        (user_id, company_id),
-                    )
-                    _log_audit(cur, user_id, "crm_pris", "companies", company_id, {"name": ligne["name"]})
-                    ligne["commercial_id"] = user_id
+                    _attribuer(cur, ligne, user_id)
             return action(cur, ligne)
     finally:
         pool.putconn(conn)
@@ -158,11 +207,7 @@ def prendre(company_id, user_id, is_admin=False):
             return
         if ligne["commercial_id"] is not None:
             raise ErreurCRM("Ce prospect est déjà suivi par un autre commercial.", 409)
-        cur.execute(
-            "UPDATE companies SET crm_commercial_id = %s, crm_pris_le = now(), crm_maj_le = now() WHERE id = %s",
-            (user_id, company_id),
-        )
-        _log_audit(cur, user_id, "crm_pris", "companies", company_id, {"name": ligne["name"]})
+        _attribuer(cur, ligne, user_id)
     _executer(company_id, action, controler=False)
 
 
@@ -172,23 +217,23 @@ def liberer(company_id, user_id, is_admin=False):
             return
         if ligne["commercial_id"] != user_id and not is_admin:
             raise ErreurCRM("Seul le commercial qui suit ce prospect, ou un admin, peut le libérer.", 403)
-        cur.execute(
-            "UPDATE companies SET crm_commercial_id = NULL, crm_pris_le = NULL, crm_maj_le = now() WHERE id = %s",
-            (company_id,),
-        )
+        _maj(cur, ligne, {"commercial_id": None, "pris_le": None})
         _log_audit(cur, user_id, "crm_libere", "companies", company_id,
                    {"name": ligne["name"], "commercial_id": ligne["commercial_id"]})
     _executer(company_id, action, controler=False)
 
 
-def mettre_a_jour_suivi(company_id, statut, raison, relance_le, relance_objet, user_id, is_admin=False):
+def mettre_a_jour_suivi(company_id, statut, raison, relance_le, relance_objet, user_id, is_admin=False,
+                        commentaire=None):
     """Étape et prochaine action, enregistrées ensemble.
 
     La relance est celle du formulaire, telle quelle : une date la planifie,
     pas de date l'annule. Changer d'étape sans nouvelle date efface donc
     l'ancienne relance, qui concernait l'étape d'avant (« fixer un RDV » n'a
     plus lieu d'être une fois le RDV fixé). Pas de relance dans le passé, ni
-    pour un prospect signé ou perdu."""
+    pour un prospect signé ou perdu. Chaque enregistrement qui change quelque
+    chose — étape, prochaine action, ou commentaire — entre dans l'historique
+    du pipeline (opportunite_etapes)."""
     if statut not in STATUTS:
         raise ErreurCRM("Étape inconnue.")
     if statut == "perdu" and raison not in RAISONS_PERTE:
@@ -206,6 +251,7 @@ def mettre_a_jour_suivi(company_id, statut, raison, relance_le, relance_objet, u
     else:
         relance_le = None
     relance_objet = _texte(relance_objet) if relance_le else None
+    commentaire = (commentaire or "").strip()[:2000] or None
     equipee = raison == "deja_equipee"
 
     def action(cur, ligne):
@@ -218,12 +264,14 @@ def mettre_a_jour_suivi(company_id, statut, raison, relance_le, relance_objet, u
         elif not equipee and ligne["equipee"]:
             cur.execute("UPDATE companies SET equipped_at = NULL, equipped_by = NULL WHERE id = %s", (company_id,))
             _log_audit(cur, user_id, "company_unmarked_equipped", "companies", company_id, {"name": ligne["name"]})
-        _maj(cur, company_id, {
-            "crm_statut": None if statut == "a_contacter" else statut, "crm_raison_perte": raison,
-            "crm_relance_le": relance_le, "crm_relance_objet": relance_objet,
-        })
-        # Le journal ne garde que ce qui a changé.
-        if statut != ligne["statut"] or raison != ligne["raison"]:
+        _maj(cur, ligne, {"statut": statut, "raison_perte": raison,
+                          "relance_le": relance_le, "relance_objet": relance_objet})
+        # L'historique et le journal ne gardent que ce qui a changé.
+        etape_change = statut != ligne["statut"] or raison != ligne["raison"]
+        relance_change = (relance_le, relance_objet) != (ligne["relance_le"], ligne["relance_objet"])
+        if etape_change or relance_change or commentaire:
+            _etape(cur, ligne["opp_id"], statut, raison, user_id, relance_le, relance_objet, commentaire)
+        if etape_change:
             _log_audit(cur, user_id, "crm_statut", "companies", company_id, {
                 "de": ligne["statut"], "vers": statut, "raison": raison,
             })
@@ -236,23 +284,40 @@ def mettre_a_jour_suivi(company_id, statut, raison, relance_le, relance_objet, u
 
 
 def enregistrer_decideur(company_id, donnees, user_id, is_admin=False):
+    """Met à jour le contact principal de l'entreprise (le plus récent), ou le crée."""
     champs = {
-        "decideur_nom": _texte(donnees.get("nom")),
-        "decideur_fonction": _texte(donnees.get("fonction")),
-        "decideur_telephone": _texte(donnees.get("telephone"), 40),
-        "decideur_email": _texte(donnees.get("email"), 120),
+        "nom": _texte(donnees.get("nom")),
+        "fonction": _texte(donnees.get("fonction")),
+        "telephone": _texte(donnees.get("telephone"), 40),
+        "email": _texte(donnees.get("email"), 120),
     }
-    if champs["decideur_email"] and "@" not in champs["decideur_email"]:
+    if champs["email"] and "@" not in champs["email"]:
         raise ErreurCRM("Adresse e-mail invalide.")
 
     def action(cur, ligne):
-        _maj(cur, company_id, champs)
-        _log_audit(cur, user_id, "crm_decideur", "companies", company_id,
-                   {k.removeprefix("decideur_"): v for k, v in champs.items()})
+        cur.execute(
+            "SELECT id FROM decideurs WHERE company_id = %s ORDER BY maj_le DESC, id DESC LIMIT 1",
+            (company_id,),
+        )
+        existant = cur.fetchone()
+        if existant:
+            cur.execute(
+                "UPDATE decideurs SET nom = %s, fonction = %s, telephone = %s, email = %s, maj_le = now() "
+                "WHERE id = %s",
+                (*champs.values(), existant[0]),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO decideurs (company_id, nom, fonction, telephone, email) VALUES (%s, %s, %s, %s, %s)",
+                (company_id, *champs.values()),
+            )
+        _toucher(cur, ligne)
+        _log_audit(cur, user_id, "crm_decideur", "companies", company_id, champs)
     _executer(company_id, action, user_id, is_admin)
 
 
 def enregistrer_visite(company_id, donnees, user_id, is_admin=False, session_pvgis=None):
+    """Ajoute une visite : chaque passage est gardé, la fiche montre le dernier."""
     conso = _nombre(donnees.get("conso_kwh_an"), 0, 1e9, "Consommation annuelle")
     etat = donnees.get("etat_toiture") or None
     if etat is not None and etat not in ETATS_TOITURE:
@@ -269,11 +334,15 @@ def enregistrer_visite(company_id, donnees, user_id, is_admin=False, session_pvg
                 productible = pvgis.productible(cur, lat, lon, session_pvgis, inclinaison, orientation)
             except pvgis.PvgisIndisponible:
                 raise ErreurCRM("PVGIS injoignable : la pente n'a pas pu être prise en compte. Réessayer.", 503)
-        _maj(cur, company_id, {
-            "visite_conso_kwh_an": conso, "visite_etat_toiture": etat,
-            "visite_inclinaison": inclinaison, "visite_orientation": orientation,
-            "visite_productible": productible,
-        })
+        cur.execute(
+            """
+            INSERT INTO visites (company_id, user_id, conso_kwh_an, etat_toiture, inclinaison,
+                                 orientation, productible)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """,
+            (company_id, user_id, conso, etat, inclinaison, orientation, productible),
+        )
+        _toucher(cur, ligne)
         _log_audit(cur, user_id, "crm_visite", "companies", company_id, {
             "conso_kwh_an": conso, "etat_toiture": etat,
             "inclinaison": inclinaison, "orientation": orientation, "productible": productible,
@@ -292,7 +361,7 @@ def ajouter_note(company_id, texte, user_id, is_admin=False):
         cur.execute("INSERT INTO crm_notes (company_id, user_id, texte) VALUES (%s, %s, %s) RETURNING id",
                     (company_id, user_id, texte))
         note_id = cur.fetchone()[0]
-        cur.execute("UPDATE companies SET crm_maj_le = now() WHERE id = %s", (company_id,))
+        _toucher(cur, ligne)
         _log_audit(cur, user_id, "crm_note", "companies", company_id, {"note_id": note_id})
     _executer(company_id, action, user_id, is_admin)
 
@@ -340,13 +409,38 @@ def _historique(details, action):
     if action == "crm_visite":
         morceaux = []
         if d.get("conso_kwh_an"):
-            morceaux.append(f"consommation {d['conso_kwh_an']:,.0f} kWh/an".replace(",", " "))
+            morceaux.append(f"consommation {d['conso_kwh_an']:,.0f} kWh/an".replace(",", "\u202f"))
         if d.get("etat_toiture"):
             morceaux.append(f"toiture : {ETATS_TOITURE.get(d['etat_toiture'], d['etat_toiture'])}")
         if d.get("inclinaison") is not None:
             morceaux.append(f"pente {d['inclinaison']:g}°")
         return ", ".join(morceaux)
     return ""
+
+
+def parcours(etapes_vues, statut, pris_le):
+    """Historique du pipeline (opportunite_etapes). `etapes_vues` : (étape,
+    date, auteur, raison, relance_le, relance_objet, commentaire), de la plus
+    ancienne à la plus récente.
+
+    - `etapes` : pour chaque étape, quand elle a été atteinte (la dernière
+      fois) et par qui. Une nouvelle relance ou un commentaire dans la même
+      étape ne change pas cette date : seul le passage d'une étape à une
+      autre compte ;
+    - `etape_depuis` : depuis quand le prospect est dans son étape actuelle ;
+    - `lignes` : tout l'historique, du plus récent au plus ancien."""
+    etapes, precedente, lignes = {}, None, []
+    for etape, le, auteur, raison, relance_le, relance_objet, commentaire in etapes_vues:
+        if etape != precedente:
+            etapes[etape] = {"le": le.isoformat(), "auteur": auteur}
+            precedente = etape
+        lignes.append({
+            "etape": etape, "le": le.isoformat(), "auteur": auteur, "raison_perte": raison,
+            "relance": {"le": relance_le.isoformat(), "objet": relance_objet} if relance_le else None,
+            "commentaire": commentaire, "changement": len(lignes) == 0 or lignes[-1]["etape"] != etape,
+        })
+    depuis = etapes.get(statut, {}).get("le") or (pris_le.isoformat() if pris_le else None)
+    return {"etapes": etapes, "etape_depuis": depuis, "lignes": lignes[::-1]}
 
 
 def fiche(company_id, user_id=None, is_admin=True):
@@ -356,15 +450,19 @@ def fiche(company_id, user_id=None, is_admin=True):
     try:
         with conn, conn.cursor() as cur:
             cur.execute(
-                """
+                f"""
                 SELECT c.id, c.name, c.category, c.address, c.city, c.phone, c.email, c.website,
                        c.lat, c.lon, c.roof_area_m2, c.solar_panels, c.solar_kwc, c.solar_yield_kwh_kwc,
-                       c.crm_statut, c.crm_raison_perte, c.crm_commercial_id, u.display_name, u.username,
-                       c.crm_pris_le, c.crm_relance_le, c.crm_relance_objet, c.crm_maj_le,
-                       c.decideur_nom, c.decideur_fonction, c.decideur_telephone, c.decideur_email,
-                       c.visite_conso_kwh_an, c.visite_etat_toiture, c.visite_inclinaison,
-                       c.visite_orientation, c.visite_productible, c.equipped_at
-                FROM companies c LEFT JOIN users u ON u.id = c.crm_commercial_id
+                       COALESCE(o.statut, 'a_contacter'), o.raison_perte, o.commercial_id,
+                       u.display_name, u.username, o.pris_le, o.relance_le, o.relance_objet, o.maj_le,
+                       dec.nom, dec.fonction, dec.telephone, dec.email,
+                       vis.conso_kwh_an, vis.etat_toiture, vis.inclinaison, vis.orientation,
+                       vis.productible, c.equipped_at, o.id, vis.le
+                FROM companies c
+                LEFT JOIN opportunites o ON o.company_id = c.id
+                LEFT JOIN users u ON u.id = o.commercial_id
+                {DERNIER_DECIDEUR}
+                {DERNIERE_VISITE}
                 WHERE c.id = %s
                 """,
                 (company_id,),
@@ -383,6 +481,18 @@ def fiche(company_id, user_id=None, is_admin=True):
                 (company_id,),
             )
             notes = [{"id": n[0], "texte": n[1], "le": n[2].isoformat(), "auteur": n[3]} for n in cur.fetchall()]
+            etapes_vues = []
+            if r[33] is not None:
+                cur.execute(
+                    """
+                    SELECT e.etape, e.le, COALESCE(u.display_name, u.username), e.raison_perte,
+                           e.relance_le, e.relance_objet, e.commentaire
+                    FROM opportunite_etapes e LEFT JOIN users u ON u.id = e.user_id
+                    WHERE e.opportunite_id = %s ORDER BY e.le, e.id
+                    """,
+                    (r[33],),
+                )
+                etapes_vues = cur.fetchall()
             cur.execute(
                 """
                 SELECT a.action, a.details, a.created_at, COALESCE(u.display_name, u.username)
@@ -404,16 +514,18 @@ def fiche(company_id, user_id=None, is_admin=True):
         "id": r[0], "name": r[1], "category": r[2], "address": r[3], "city": r[4],
         "phone": r[5], "email": r[6], "website": r[7], "lat": r[8], "lon": r[9],
         "roof_area_m2": r[10], "solar_panels": r[11], "solar_kwc": r[12],
-        "statut": r[14] or "a_contacter", "raison_perte": r[15],
+        "statut": r[14], "raison_perte": r[15],
         "commercial": {"id": r[16], "nom": r[17] or r[18]} if r[16] else None,
         "pris_le": r[19].isoformat() if r[19] else None,
         "relance": {"le": r[20].isoformat(), "objet": r[21]} if r[20] else None,
         "maj_le": r[22].isoformat() if r[22] else None,
         "decideur": {"nom": r[23], "fonction": r[24], "telephone": r[25], "email": r[26]},
-        "visite": {"conso_kwh_an": r[27], "etat_toiture": r[28], "inclinaison": r[29], "orientation": r[30]},
+        "visite": {"conso_kwh_an": r[27], "etat_toiture": r[28], "inclinaison": r[29], "orientation": r[30],
+                   "le": r[34].isoformat() if r[34] else None},
         "calculs": calculs(r[12], r[13], r[31], r[27], r[28]),
         "equipee": r[32] is not None,
         "notes": notes,
+        "parcours": parcours(etapes_vues, r[14], r[19]),
         "historique": historique,
     }
 
@@ -435,22 +547,22 @@ def relances_dues(user_id):
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, name, city, crm_relance_le, crm_relance_objet, crm_statut
-                FROM companies
-                WHERE crm_commercial_id = %s AND crm_relance_le <= current_date
-                  AND COALESCE(crm_statut, 'a_contacter') NOT IN ('signe', 'perdu')
-                ORDER BY crm_relance_le, name
+                SELECT c.id, c.name, c.city, o.relance_le, o.relance_objet, o.statut
+                FROM opportunites o JOIN companies c ON c.id = o.company_id
+                WHERE o.commercial_id = %s AND o.relance_le <= current_date
+                  AND o.statut NOT IN ('signe', 'perdu')
+                ORDER BY o.relance_le, c.name
                 """,
                 (user_id,),
             )
             return [{"id": r[0], "name": r[1], "city": r[2], "le": r[3].isoformat(), "objet": r[4],
-                     "statut": r[5] or "a_contacter"} for r in cur.fetchall()]
+                     "statut": r[5]} for r in cur.fetchall()]
     finally:
         pool.putconn(conn)
 
 
 def opportunites(user_id, commercial="moi", statut=None, relances=False, search=None, is_admin=False):
-    """Prospects pris par un commercial, pour la page de suivi.
+    """Opportunités prises par les commerciaux, pour la page de suivi.
 
     `commercial` : « moi » (par défaut), « tous » (toutes les opportunités
     prises), ou l'identifiant d'un compte. Les compteurs par étape et le
@@ -459,35 +571,42 @@ def opportunites(user_id, commercial="moi", statut=None, relances=False, search=
     # Un commercial ne voit que ses opportunités, quoi qu'il demande.
     if not is_admin:
         commercial = "moi"
-    perimetre, params = ["c.crm_commercial_id IS NOT NULL"], []
+    perimetre, params = ["o.commercial_id IS NOT NULL"], []
     if commercial == "moi":
-        perimetre.append("c.crm_commercial_id = %s")
+        perimetre.append("o.commercial_id = %s")
         params.append(user_id)
     elif commercial and str(commercial).isdigit():
-        perimetre.append("c.crm_commercial_id = %s")
+        perimetre.append("o.commercial_id = %s")
         params.append(int(commercial))
     if search:
-        perimetre.append("(c.name ILIKE %s OR c.city ILIKE %s OR c.decideur_nom ILIKE %s)")
+        perimetre.append("(c.name ILIKE %s OR c.city ILIKE %s OR dec.nom ILIKE %s)")
         params.extend([f"%{search}%"] * 3)
     filtres, fparams = list(perimetre), list(params)
     if statut == "en_cours":
-        filtres.append("COALESCE(c.crm_statut, 'a_contacter') NOT IN ('signe', 'perdu')")
+        filtres.append("o.statut NOT IN ('signe', 'perdu')")
     elif statut in STATUTS:
-        filtres.append("COALESCE(c.crm_statut, 'a_contacter') = %s")
+        filtres.append("o.statut = %s")
         fparams.append(statut)
     if relances:
-        filtres.append("c.crm_relance_le <= current_date")
-        filtres.append("COALESCE(c.crm_statut, 'a_contacter') NOT IN ('signe', 'perdu')")
+        filtres.append("o.relance_le <= current_date")
+        filtres.append("o.statut NOT IN ('signe', 'perdu')")
 
+    jointures = f"""
+        FROM opportunites o
+        JOIN companies c ON c.id = o.company_id
+        LEFT JOIN users u ON u.id = o.commercial_id
+        {DERNIER_DECIDEUR}
+        {DERNIERE_VISITE}"""
     pool, conn = _connexion()
     try:
         with conn, conn.cursor() as cur:
             cur.execute(
                 f"""
-                SELECT COALESCE(c.crm_statut, 'a_contacter'), count(*),
-                       count(*) FILTER (WHERE c.crm_relance_le <= current_date
-                                        AND COALESCE(c.crm_statut, 'a_contacter') NOT IN ('signe', 'perdu'))
-                FROM companies c WHERE {" AND ".join(perimetre)} GROUP BY 1
+                SELECT o.statut, count(*),
+                       count(*) FILTER (WHERE o.relance_le <= current_date
+                                        AND o.statut NOT IN ('signe', 'perdu'))
+                {jointures}
+                WHERE {" AND ".join(perimetre)} GROUP BY 1
                 """,
                 params,
             )
@@ -498,15 +617,21 @@ def opportunites(user_id, commercial="moi", statut=None, relances=False, search=
             cur.execute(
                 f"""
                 SELECT c.id, c.name, c.city, c.category, c.phone,
-                       COALESCE(c.crm_statut, 'a_contacter'), c.crm_raison_perte,
-                       c.crm_commercial_id, COALESCE(u.display_name, u.username),
-                       c.crm_relance_le, c.crm_relance_objet, c.crm_maj_le, c.crm_pris_le,
-                       c.solar_kwc, c.solar_yield_kwh_kwc, c.visite_productible,
-                       c.visite_conso_kwh_an, c.visite_etat_toiture,
-                       c.decideur_nom, c.decideur_fonction, c.decideur_telephone
-                FROM companies c LEFT JOIN users u ON u.id = c.crm_commercial_id
+                       o.statut, o.raison_perte, o.commercial_id, COALESCE(u.display_name, u.username),
+                       o.relance_le, o.relance_objet, o.maj_le, o.pris_le,
+                       c.solar_kwc, c.solar_yield_kwh_kwc, vis.productible,
+                       vis.conso_kwh_an, vis.etat_toiture,
+                       dec.nom, dec.fonction, dec.telephone,
+                       -- Entrée dans l'étape actuelle : premier passage après la dernière
+                       -- ligne d'une autre étape (une relance ou un commentaire ne compte pas).
+                       (SELECT min(e.le) FROM opportunite_etapes e
+                        WHERE e.opportunite_id = o.id AND e.etape = o.statut
+                          AND e.le > COALESCE((SELECT max(e2.le) FROM opportunite_etapes e2
+                                               WHERE e2.opportunite_id = o.id AND e2.etape <> o.statut),
+                                              '-infinity'))
+                {jointures}
                 WHERE {" AND ".join(filtres)}
-                ORDER BY c.crm_relance_le NULLS LAST, c.crm_maj_le DESC NULLS LAST, c.name
+                ORDER BY o.relance_le NULLS LAST, o.maj_le DESC, c.name
                 LIMIT 500
                 """,
                 fparams,
@@ -527,6 +652,8 @@ def opportunites(user_id, commercial="moi", statut=None, relances=False, search=
             "solar_kwc": r[13],
             "calculs": calculs(r[13], r[14], r[15], r[16], r[17]),
             "decideur": {"nom": r[18], "fonction": r[19], "telephone": r[20]},
+            # Entrée dans l'étape actuelle (historique du pipeline), sinon la prise.
+            "etape_depuis": (r[21] or r[12]).isoformat() if (r[21] or r[12]) else None,
         })
     return {"opportunites": resultat, "compteurs": compteurs, "relances_dues": dues,
             "total": sum(compteurs.values())}

@@ -9,7 +9,7 @@ les règles sont vérifiées avant tout accès.
 import pytest
 
 import app as app_module
-from services import crm, prospects
+from services import crm
 from web import auth
 from web import crm as route
 
@@ -110,34 +110,6 @@ def test_l_historique_se_lit_en_francais():
         == "le 2026-10-12 : rappeler le DAF"
 
 
-# ---------- filtres du tableau de bord ----------
-
-def clauses_de(**kwargs):
-    clauses, params = prospects._prospects_filter_clauses(**kwargs)
-    return " AND ".join(clauses), params
-
-
-def test_mes_prospects_ne_montre_que_les_miens():
-    sql, params = clauses_de(commercial="moi", user_id=7)
-    assert "crm_commercial_id = %s" in sql and params == [7]
-
-
-def test_non_pris_et_commercial_precis():
-    assert "crm_commercial_id IS NULL" in clauses_de(commercial="libres")[0]
-    sql, params = clauses_de(commercial="12")
-    assert "crm_commercial_id = %s" in sql and params == [12]
-    # Une valeur bricolée n'ajoute rien, et surtout pas de SQL.
-    assert "crm_commercial_id" not in clauses_de(commercial="1 OR 1=1")[0]
-
-
-def test_etape_en_cours_et_relances_dues():
-    sql, params = clauses_de(statut="en_cours", relances=True, alias="c")
-    assert "COALESCE(c.crm_statut, 'a_contacter') NOT IN ('signe', 'perdu')" in sql
-    assert "c.crm_relance_le <= current_date" in sql
-    sql, params = clauses_de(statut="rdv_fixe")
-    assert "COALESCE(crm_statut, 'a_contacter') = %s" in sql and params == ["rdv_fixe"]
-
-
 # ---------- routes ----------
 
 def _client(monkeypatch, is_admin=False):
@@ -210,6 +182,8 @@ def test_les_opportunites_sont_les_miennes_par_defaut(monkeypatch):
 # ---------- un commercial ne touche qu'à ses prospects ; un admin, à tous ----------
 
 class Curseur:
+    """Simule companies, opportunites et opportunite_etapes pour l'entreprise n° 42."""
+
     def __init__(self, base):
         self.base, self._r = base, None
 
@@ -221,16 +195,33 @@ class Curseur:
 
     def execute(self, sql, params=None):
         sql = " ".join(sql.split())
-        if sql.startswith("SELECT id, name, crm_commercial_id"):
-            self._r = (42, "Usine", self.base["commercial"], self.base.get("statut"), None,
-                       None, self.base.get("relance_le"), self.base.get("relance_objet"))
-        elif sql.startswith("UPDATE companies SET crm_commercial_id"):
-            self.base["commercial"] = params[0]
-            self.base["ecrit"].append("pris")
+        b = self.base
+        if sql.startswith("SELECT id, name, equipped_at FROM companies"):
+            self._r = (42, "Usine", None)
+        elif sql.startswith("SELECT id, commercial_id, statut, raison_perte, relance_le, relance_objet FROM opportunites"):
+            self._r = (7, b["commercial"], b["statut"], None, b.get("relance_le"), b.get("relance_objet")) \
+                if b.get("opp") else None
+        elif sql.startswith("INSERT INTO opportunites"):
+            b.update(opp=True, commercial=params[1])
+            self._r = (7,)
+        elif sql.startswith("UPDATE opportunites SET commercial_id = %s, pris_le = now()"):
+            b["commercial"] = params[0]
+        elif sql.startswith("UPDATE opportunites SET commercial_id = %s, pris_le = %s"):
+            b["commercial"] = params[0]
+        elif sql.startswith("UPDATE opportunites SET statut"):
+            b["maj"] = params
+        elif sql.startswith("UPDATE opportunites SET maj_le"):
+            pass
+        elif sql.startswith("INSERT INTO opportunite_etapes"):
+            b["etapes"].append(params[1])
+            b["ligne_etape"] = tuple(params)
+        elif sql.startswith("INSERT INTO crm_notes"):
+            b["ecrit"].append("note")
+            self._r = (1,)
         elif sql.startswith("INSERT INTO audit_log"):
-            self.base["journal"].append(params[1])
+            b["journal"].append(params[1])
         else:
-            self.base["ecrit"].append(sql.split()[0])
+            raise AssertionError(sql)
 
     def fetchone(self):
         return self._r
@@ -252,26 +243,33 @@ class Connexion:
 
 @pytest.fixture
 def base(monkeypatch):
-    etat = {"commercial": None, "ecrit": [], "journal": []}
+    etat = {"opp": False, "commercial": None, "statut": "a_contacter", "ecrit": [], "journal": [], "etapes": []}
     pool = type("Pool", (), {"getconn": lambda self: Connexion(etat), "putconn": lambda self, c: None})()
     monkeypatch.setattr(crm, "_get_db_pool", lambda: pool)
     return etat
 
 
 def test_le_prospect_d_un_collegue_est_refuse(base):
-    base["commercial"] = 9
+    base.update(opp=True, commercial=9)
     with pytest.raises(crm.ErreurCRM, match="autre commercial") as exc:
         crm.ajouter_note(42, "Appel", 7)
     assert exc.value.code == 403 and base["ecrit"] == []
 
 
-def test_agir_sur_un_prospect_libre_le_prend(base):
+def test_agir_sur_un_prospect_libre_cree_l_opportunite(base):
     crm.ajouter_note(42, "Appel", 7)
-    assert base["commercial"] == 7 and base["journal"][:1] == ["crm_pris"]
+    assert base["opp"] and base["commercial"] == 7
+    assert base["etapes"] == ["a_contacter"] and base["journal"][:1] == ["crm_pris"]
+
+
+def test_une_opportunite_liberee_est_reprise_sans_etre_recreee(base):
+    base.update(opp=True, commercial=None, statut="rdv_fixe")
+    crm.prendre(42, 7)
+    assert base["commercial"] == 7 and base["etapes"] == []
 
 
 def test_un_admin_consulte_sans_modifier(base):
-    base["commercial"] = 9
+    base.update(opp=True, commercial=9)
     with pytest.raises(crm.ErreurCRM, match="sans le modifier") as exc:
         crm.ajouter_note(42, "Vu avec le client", 1, is_admin=True)
     assert exc.value.code == 403 and base["ecrit"] == [] and base["commercial"] == 9
@@ -280,13 +278,13 @@ def test_un_admin_consulte_sans_modifier(base):
 def test_un_admin_ne_prend_pas_de_prospect(base):
     with pytest.raises(crm.ErreurCRM, match="ne prend pas") as exc:
         crm.prendre(42, 1, is_admin=True)
-    assert exc.value.code == 403 and base["commercial"] is None
+    assert exc.value.code == 403 and not base["opp"]
 
 
 def test_un_admin_peut_liberer_le_prospect_d_un_commercial(base):
-    base["commercial"] = 9
+    base.update(opp=True, commercial=9)
     crm.liberer(42, 1, is_admin=True)
-    assert "crm_libere" in base["journal"]
+    assert base["commercial"] is None and "crm_libere" in base["journal"]
 
 
 def test_un_commercial_ne_voit_que_ses_opportunites(monkeypatch):
@@ -303,30 +301,17 @@ def test_un_commercial_ne_voit_que_ses_opportunites(monkeypatch):
                              "putconn": lambda self, c: None})()
     monkeypatch.setattr(crm, "_get_db_pool", lambda: pool)
     crm.opportunites(7, commercial="tous")
-    assert "c.crm_commercial_id = %s" in requetes[0][0] and requetes[0][1] == [7]
+    assert "o.commercial_id = %s" in requetes[0][0] and requetes[0][1] == [7]
     requetes.clear()
     crm.opportunites(1, commercial="tous", is_admin=True)
-    assert "c.crm_commercial_id = %s" not in requetes[0][0]
-
+    assert "o.commercial_id = %s" not in requetes[0][0]
 
 
 # ---------- étape et relance enregistrées ensemble ----------
 
-class CurseurSuivi(Curseur):
-    def execute(self, sql, params=None):
-        sql_net = " ".join(sql.split())
-        if sql_net.startswith("UPDATE companies SET crm_statut"):
-            self.base["maj"] = params
-        else:
-            super().execute(sql, params)
-
-
 @pytest.fixture
-def base_suivi(monkeypatch, base):
-    pool = type("Pool", (), {"getconn": lambda self: type("C", (Connexion,), {
-        "cursor": lambda s: CurseurSuivi(base)})(base), "putconn": lambda self, c: None})()
-    monkeypatch.setattr(crm, "_get_db_pool", lambda: pool)
-    base.update(commercial=7, statut="contacte", relance_le=__import__("datetime").date(2099, 1, 1),
+def base_suivi(base):
+    base.update(opp=True, commercial=7, statut="contacte", relance_le=__import__("datetime").date(2099, 1, 1),
                 relance_objet="Fixer un rendez-vous")
     return base
 
@@ -335,6 +320,7 @@ def test_changer_d_etape_sans_date_efface_l_ancienne_relance(base_suivi):
     crm.mettre_a_jour_suivi(42, "rdv_fixe", None, None, None, 7)
     statut, raison, relance, objet, _id = base_suivi["maj"]
     assert (statut, relance, objet) == ("rdv_fixe", None, None)
+    assert base_suivi["etapes"] == ["rdv_fixe"]
     assert base_suivi["journal"] == ["crm_statut", "crm_relance_annulee"]
 
 
@@ -345,6 +331,31 @@ def test_la_nouvelle_relance_remplace_l_ancienne(base_suivi):
     assert base_suivi["journal"] == ["crm_statut", "crm_relance"]
 
 
-def test_rien_de_change_rien_au_journal(base_suivi):
+def test_une_nouvelle_relance_dans_la_meme_etape_entre_dans_l_historique(base_suivi):
+    crm.mettre_a_jour_suivi(42, "contacte", None, "2099-03-01", "Rappeler le DAF", 7, commentaire="Absent ce jour")
+    assert base_suivi["etapes"] == ["contacte"] and base_suivi["journal"] == ["crm_relance"]
+    assert base_suivi["ligne_etape"][4:7] == (__import__("datetime").date(2099, 3, 1), "Rappeler le DAF", "Absent ce jour")
+
+
+def test_un_commentaire_seul_entre_dans_l_historique(base_suivi):
+    crm.mettre_a_jour_suivi(42, "contacte", None, "2099-01-01", "Fixer un rendez-vous", 7, commentaire="Intéressé")
+    assert base_suivi["etapes"] == ["contacte"] and base_suivi["journal"] == []
+
+
+def test_rien_de_change_rien_dans_l_historique(base_suivi):
     crm.mettre_a_jour_suivi(42, "contacte", None, "2099-01-01", "Fixer un rendez-vous", 7)
-    assert base_suivi["journal"] == []
+    assert base_suivi["journal"] == [] and base_suivi["etapes"] == []
+
+
+def test_le_parcours_date_chaque_etape_a_son_entree():
+    import datetime as dt
+    jour = lambda j: dt.datetime(2026, 10, j, 9, 0)
+    ligne = lambda etape, j, relance=None, commentaire=None: (etape, jour(j), "Adnane", None, relance, "x", commentaire)
+    p = crm.parcours([ligne("a_contacter", 1), ligne("contacte", 3), ligne("a_contacter", 4),
+                      ligne("contacte", 6), ligne("contacte", 8, dt.date(2026, 10, 20), "Absent")],
+                     "contacte", jour(1))
+    # Retour à « Contacté » le 6 ; la relance du 8, dans la même étape, ne déplace pas cette date.
+    assert p["etapes"]["contacte"]["le"].startswith("2026-10-06")
+    assert p["etape_depuis"].startswith("2026-10-06")
+    assert [l["changement"] for l in p["lignes"]] == [False, True, True, True, True]
+    assert p["lignes"][0]["commentaire"] == "Absent" and p["lignes"][0]["relance"]["le"] == "2026-10-20"

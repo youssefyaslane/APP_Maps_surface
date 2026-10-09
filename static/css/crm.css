@@ -190,6 +190,26 @@ td.col-action { white-space: nowrap; }
 .crm-lecture-seule { margin: 12px 0 0; padding: 8px 10px; border-radius: 6px; background: #eceff1; color: #455a64; font-size: 13px; }
 .crm-fiche :disabled { background: #f4f6f8; color: #546e7a; }
 .crm-relance-actuelle { margin: 0 0 8px; }
+/* Historique du pipeline, dans la partie « Suivi ». */
+.crm-chronologie { margin: 6px 0 0; padding: 0 0 0 14px; list-style: none; border-left: 2px solid #e3e9ec; }
+.crm-chronologie li { position: relative; padding: 0 0 12px 10px; font-size: 12.5px; }
+.crm-chronologie li::before {
+  content: "";
+  position: absolute;
+  left: -20px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #b0bec5;
+}
+.crm-chronologie li.changement::before { background: var(--etape, #2e7d32); }
+.crm-chrono-tete { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 10px; }
+.crm-chrono-tete span { color: #78909c; font-size: 11.5px; }
+.crm-chronologie li:not(.changement) .crm-chrono-tete b { color: #607d8b; font-weight: 600; }
+.crm-chrono-action { display: inline-flex; align-items: center; gap: 5px; margin-top: 3px; color: #455a64; }
+.crm-chronologie p { margin: 4px 0 0; padding: 6px 9px; border-radius: 6px; background: #f4f6f8; color: #263238; }
 .crm-a-enregistrer { margin: 4px 0 10px; padding: 8px 10px; border-radius: 6px; background: #fff8e1; color: #8d6e00; font-size: 12.5px; }
 
 .crm-notes, .crm-historique { margin: 10px 0 0; padding: 0; list-style: none; }
@@ -332,6 +352,7 @@ td.col-action { white-space: nowrap; }
 .op-carte:focus-visible { outline: 2px solid #2e7d32; outline-offset: 2px; }
 .op-nom { font-weight: 700; font-size: 13.5px; color: #1f5130; line-height: 1.3; }
 .op-lieu { font-size: 12px; color: #78909c; }
+.op-depuis { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: #90a4ae; }
 .op-chiffres { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; font-weight: 600; color: #37474f; }
 .op-chiffres span, .op-action, .op-pied span { display: inline-flex; align-items: center; gap: 5px; }
 .op-action { font-size: 12px; color: #455a64; }
@@ -391,6 +412,9 @@ td.col-action { white-space: nowrap; }
   box-sizing: border-box;
 }
 .crm-pas-nom { display: block; margin-top: 5px; font-size: 10.5px; line-height: 1.25; color: #78909c; }
+/* Historique du pipeline : date de passage, ou temps dans l'étape actuelle. */
+.crm-pas-date { display: block; margin-top: 1px; font-size: 10px; color: #90a4ae; }
+.crm-pas.actuel .crm-pas-date { color: #1f5130; font-weight: 600; }
 .crm-pas button .crm-pas-nom { margin-top: 0; }
 .crm-pas.fait .crm-pastille { border-color: #2e7d32; background: #2e7d32; color: #fff; font-size: 14px; }
 .crm-pas.actuel .crm-pastille { border-color: #2e7d32; background: #fff; color: #1f5130; box-shadow: 0 0 0 4px #ddebe0; }
