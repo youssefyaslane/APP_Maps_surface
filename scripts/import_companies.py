@@ -22,11 +22,10 @@ from services import db
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DEFAULT_PATH = os.path.join(PROJECT_ROOT, "Data_clients")
 
-# ~50 m en degrés. Deux exports du même commerce ne donnent pas exactement les
-# mêmes coordonnées : le rapprochement par nom seul serait faux (« Ain Sebaa »,
-# « Casablanca » désignent des sociétés distinctes), par coordonnées seules
-# aussi (plusieurs sociétés partagent une adresse).
-DUPLICATE_RADIUS_DEG = 0.00045
+# ~50 m en degrés, défini avec la règle anti-doublon partagée par le chatbot
+# (services/doublons.py). Deux exports du même commerce ne donnent pas
+# exactement les mêmes coordonnées.
+from services.doublons import DUPLICATE_RADIUS_DEG, IndexBase  # noqa: E402
 
 
 def _find_all_xlsx():
@@ -187,9 +186,16 @@ def import_companies(xlsx_path, check_only=False, unknown_cities=None):
     conn = db.connect()
     inserted = 0
     skipped = 0
+    doublons = []
     try:
         with conn, conn.cursor() as cur:
             known = load_known_cities(cur)
+            # Règle anti-doublon commune au chatbot : une fiche nouvelle (place_id
+            # inconnu) n'est pas écrite si elle ressemble à une entreprise déjà en
+            # base — même téléphone, même site, ou nom proche à moins de 50 m.
+            index = IndexBase(cur)
+            cur.execute("SELECT place_id FROM companies WHERE place_id IS NOT NULL")
+            place_ids_connus = {r[0] for r in cur.fetchall()}
             for row in rows:
                 lat = _first(get(row, "latitude"), get(row, "location/lat"), get(row, "Latitude"))
                 lon = _first(get(row, "longitude"), get(row, "location/lng"), get(row, "Longitude"))
@@ -216,11 +222,22 @@ def import_companies(xlsx_path, check_only=False, unknown_cities=None):
 
                 values = (name, category, address, city, phone, email, website, rating)
 
+                # Une entreprise déjà connue (même place_id, ou même fiche sans
+                # place_id) est mise à jour plus bas. Une fiche nouvelle qui
+                # ressemble à une entreprise existante n'est pas écrite.
+                twin_id = None if place_id else _find_twin_without_place_id(cur, name, lon, lat)
+                connue = (place_id and place_id in place_ids_connus) or twin_id is not None
+                if not connue:
+                    raison = index.doublon({"name": name, "lat": lat, "lon": lon,
+                                            "phone": phone, "website": website})
+                    if raison:
+                        doublons.append((name, raison))
+                        continue
+
                 if check_only:
                     inserted += 1
                     continue
 
-                twin_id = None if place_id else _find_twin_without_place_id(cur, name, lon, lat)
                 if twin_id is not None:
                     cur.execute(
                         """
@@ -248,15 +265,30 @@ def import_companies(xlsx_path, check_only=False, unknown_cities=None):
                             rating = EXCLUDED.rating,
                             lon = EXCLUDED.lon,
                             lat = EXCLUDED.lat
+                        RETURNING id
                         """,
                         (*values, lon, lat, place_id),
                     )
+                    nouvel_id = cur.fetchone()[0]
+                    # La fiche écrite compte pour les lignes suivantes du fichier :
+                    # deux lignes de la même société ne passent pas toutes les deux.
+                    if not connue:
+                        index.ajouter(nouvel_id, name, lat, lon, phone, website)
+                        if place_id:
+                            place_ids_connus.add(place_id)
                 inserted += 1
     finally:
         conn.close()
 
     verbe = "À importer" if check_only else "Importé/mis à jour"
     print(f"{verbe} : {inserted}, ignoré (coordonnées ou nom manquants) : {skipped}")
+    if doublons:
+        action = "seraient écartés" if check_only else "écartés, non écrits"
+        print(f"Doublons {action} : {len(doublons)}")
+        for name, raison in doublons[:20]:
+            print(f"   {name} — {raison}")
+        if len(doublons) > 20:
+            print(f"   … et {len(doublons) - 20} autre(s)")
 
 
 def report_unknown_cities(unknown_cities, check_only):
