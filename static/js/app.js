@@ -369,7 +369,6 @@ function showCompanyTooltip(e, props) {
   const category = props.category ? `<div>${escapeHtml(props.category)}</div>` : "";
   const address = props.address ? `<div>${escapeHtml(props.address)}</div>` : "";
   const phone = props.phone ? `<div>📞 ${escapeHtml(props.phone)}</div>` : "";
-  const rating = props.rating ? `<div>⭐ ${props.rating}</div>` : "";
   const roof = props.has_roof
     ? `<div class="solar">🏠 ${props.roof_area_m2.toLocaleString("fr-FR")} m²${
         props.solar_kwc ? ` — ☀️ ${props.solar_kwc.toLocaleString("fr-FR")} kWc` : ""
@@ -381,7 +380,6 @@ function showCompanyTooltip(e, props) {
     ${category}
     ${address}
     ${phone}
-    ${rating}
     ${roof}
     ${equipped}
   `;
@@ -460,7 +458,6 @@ function openCompanyPanel(props, latlng) {
     ${field("📞", "Téléphone", props.phone)}
     ${field("✉️", "Email", props.email)}
     ${field("🌐", "Site web", props.website, true)}
-    ${field("⭐", "Note", props.rating)}
     <div class="field" id="company-roof-field">
       <span class="field-icon">🏠</span>
       <span class="field-body"><span class="field-label">Toit</span>Recherche...</span>
