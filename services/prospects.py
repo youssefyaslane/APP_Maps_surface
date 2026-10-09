@@ -103,7 +103,16 @@ def _set_company_equipped(company_id, equipped, user_id):
                 """
                 UPDATE companies SET
                     equipped_at = CASE WHEN %(eq)s THEN COALESCE(equipped_at, now()) END,
-                    equipped_by = CASE WHEN %(eq)s THEN COALESCE(equipped_by, %(user)s) END
+                    equipped_by = CASE WHEN %(eq)s THEN COALESCE(equipped_by, %(user)s) END,
+                    -- Même constat que l'étape CRM « Perdu — déjà équipée » (services/crm.py) :
+                    -- les deux restent d'accord, quel que soit le bouton utilisé.
+                    crm_statut = CASE WHEN %(eq)s THEN 'perdu'
+                                      WHEN crm_raison_perte = 'deja_equipee' THEN NULL
+                                      ELSE crm_statut END,
+                    crm_raison_perte = CASE WHEN %(eq)s THEN 'deja_equipee'
+                                            WHEN crm_raison_perte = 'deja_equipee' THEN NULL
+                                            ELSE crm_raison_perte END,
+                    crm_relance_le = CASE WHEN %(eq)s THEN NULL ELSE crm_relance_le END
                 WHERE id = %(id)s
                 RETURNING name
                 """,
@@ -145,7 +154,8 @@ def _pv_detection(has_image, scores, dark_score=0.0):
 
 
 def _prospects_filter_clauses(min_kwc=None, city=None, category=None, search=None, alias="",
-                              equipped=False, pv=None):
+                              equipped=False, pv=None, statut=None, commercial=None, user_id=None,
+                              relances=False):
     """Clauses de filtrage du tableau de bord. `alias` préfixe les colonnes
     ("c." par exemple) quand la requête joint une autre table.
 
@@ -156,7 +166,12 @@ def _prospects_filter_clauses(min_kwc=None, city=None, category=None, search=Non
     `pv` filtre sur la détection automatique : "avec" (panneaux détectés et
     confirmés par la règle des pixels sombres) ou "sans" (toit analysé, rien
     de confirmé). Les toits pas encore
-    analysés ou sans image ne sortent que sans ce filtre."""
+    analysés ou sans image ne sortent que sans ce filtre.
+
+    Filtres du CRM : `statut` (une étape, ou « en_cours » pour toutes sauf
+    signé et perdu), `commercial` (« moi », « libres » ou l'identifiant d'un
+    compte, `user_id` désignant le compte connecté), `relances` (relances du
+    jour et en retard)."""
     p = f"{alias}." if alias else ""
     clauses = [
         f"{p}solar_computed_at IS NOT NULL",
@@ -194,11 +209,31 @@ def _prospects_filter_clauses(min_kwc=None, city=None, category=None, search=Non
         )
         params.append(PV_SEUIL)
 
+    if statut == "en_cours":
+        clauses.append(f"COALESCE({p}crm_statut, 'a_contacter') NOT IN ('signe', 'perdu')")
+    elif statut:
+        clauses.append(f"COALESCE({p}crm_statut, 'a_contacter') = %s")
+        params.append(statut)
+    if commercial == "moi":
+        clauses.append(f"{p}crm_commercial_id = %s")
+        params.append(user_id)
+    elif commercial == "libres":
+        clauses.append(f"{p}crm_commercial_id IS NULL")
+    elif commercial and str(commercial).isdigit():
+        clauses.append(f"{p}crm_commercial_id = %s")
+        params.append(int(commercial))
+    if relances:
+        clauses.append(f"{p}crm_relance_le <= current_date")
+        clauses.append(f"COALESCE({p}crm_statut, 'a_contacter') NOT IN ('signe', 'perdu')")
+
     return clauses, params
 
 
-def _count_prospects(min_kwc=None, city=None, category=None, search=None, equipped=False, pv=None):
-    clauses, params = _prospects_filter_clauses(min_kwc, city, category, search, equipped=equipped, pv=pv)
+CRM_FILTRES = ("statut", "commercial", "user_id", "relances")
+
+
+def _count_prospects(min_kwc=None, city=None, category=None, search=None, equipped=False, pv=None, **crm):
+    clauses, params = _prospects_filter_clauses(min_kwc, city, category, search, equipped=equipped, pv=pv, **crm)
     pool = _get_db_pool()
     conn = pool.getconn()
     try:
@@ -210,11 +245,11 @@ def _count_prospects(min_kwc=None, city=None, category=None, search=None, equipp
 
 
 def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=None, offset=None,
-                     equipped=False, pv=None):
+                     equipped=False, pv=None, **crm):
     """Entreprises avec leur potentiel solaire calculé, triées par puissance
     installable décroissante (alimente le tableau de bord commercial)."""
     clauses, params = _prospects_filter_clauses(
-        min_kwc, city, category, search, alias="c", equipped=equipped, pv=pv
+        min_kwc, city, category, search, alias="c", equipped=equipped, pv=pv, **crm
     )
 
     # shared_count : nombre d'entreprises rattachées au même toit. Un toit ne
@@ -233,9 +268,12 @@ def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=
         SELECT c.id, c.name, c.category, c.address, c.city, c.phone, c.email, c.website,
                c.lon, c.lat, c.roof_area_m2, c.roof_source, c.solar_panels, c.solar_kwc,
                COALESCE(s.n, 1) AS shared_count, c.solar_yield_kwh_kwc,
+               COALESCE(c.crm_statut, 'a_contacter'), c.crm_raison_perte, c.crm_commercial_id,
+               COALESCE(u.display_name, u.username), c.crm_relance_le, c.crm_relance_objet,
                d.has_image, d.scores, d.dark_score
         FROM companies c
         LEFT JOIN shared s ON s.roof_key = c.roof_key
+        LEFT JOIN users u ON u.id = c.crm_commercial_id
         LEFT JOIN pv_detections d ON d.roof_key = c.roof_key
         WHERE {' AND '.join(clauses)}
         ORDER BY c.solar_kwc DESC NULLS LAST
@@ -260,6 +298,8 @@ def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=
         "id", "name", "category", "address", "city", "phone", "email", "website",
         "lon", "lat", "roof_area_m2", "roof_source", "solar_panels", "solar_kwc",
         "shared_count", "solar_yield_kwh_kwc",
+        "crm_statut", "crm_raison_perte", "crm_commercial_id", "crm_commercial", "crm_relance_le",
+        "crm_relance_objet",
     ]
     prospects = []
     for row in rows:
@@ -267,6 +307,8 @@ def _query_prospects(min_kwc=None, city=None, category=None, search=None, limit=
         prospect["production_mwh"] = production_mwh(prospect["solar_kwc"], prospect["solar_yield_kwh_kwc"])
         prospect["co2_t"] = co2_evite_t(prospect["production_mwh"])
         prospect["economies_dh"] = economies_dh(prospect["production_mwh"])
+        if prospect["crm_relance_le"]:
+            prospect["crm_relance_le"] = prospect["crm_relance_le"].isoformat()
         prospect["pv"] = _pv_detection(*row[len(columns):])
         prospects.append(prospect)
     return prospects
@@ -339,7 +381,7 @@ def _prospects_summary():
 
 
 def _prospect_filter_values(min_kwc=None, city=None, category=None, search=None, equipped=False,
-                            pv=None):
+                            pv=None, **crm):
     """Villes et catégories réellement présentes parmi les prospects calculés.
 
     Les filtres étaient deux champs libres : sur 21 villes et plus de cent
@@ -355,10 +397,10 @@ def _prospect_filter_values(min_kwc=None, city=None, category=None, search=None,
     liste des villes à cette seule ville et on ne pourrait plus en changer.
     """
     city_clauses, city_params = _prospects_filter_clauses(
-        min_kwc, None, category, search, equipped=equipped, pv=pv
+        min_kwc, None, category, search, equipped=equipped, pv=pv, **crm
     )
     cat_clauses, cat_params = _prospects_filter_clauses(
-        min_kwc, city, None, search, equipped=equipped, pv=pv
+        min_kwc, city, None, search, equipped=equipped, pv=pv, **crm
     )
 
     pool = _get_db_pool()

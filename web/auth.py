@@ -99,6 +99,7 @@ def _inject_current_user():
         return {"current_user": None}
     return {
         "current_user": {
+            "id": session.get("user_id"),
             "username": session.get("username"),
             "display_name": session.get("display_name"),
             "is_admin": bool(session.get("is_admin")),

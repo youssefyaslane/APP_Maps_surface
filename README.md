@@ -213,6 +213,28 @@ Accessible depuis la carte (bouton « ☀️ Prospects solaires ») ou directeme
 - **Export CSV** (séparateur `;`, BOM UTF-8 pour Excel) respectant les filtres actifs, mais **sans pagination** : l'export contient toujours l'ensemble des prospects filtrés
 - Lien « 🗺️ Voir » par prospect, qui recentre la carte sur son toit
 
+### Suivi commercial (CRM) : « Prendre », puis « Mes opportunités » (`/suivi`)
+
+Le tableau de bord reste la liste des prospects : chaque ligne n'y gagne qu'une colonne **« Suivi »**, avec le bouton **« ✋ Prendre »** (ou « ✓ Pris par moi », ou le nom du collègue qui le suit). Le même bouton figure dans la fiche d'une entreprise sur la carte. Premier arrivé, premier servi.
+
+**Rôles :**
+- **un commercial** prend ses prospects, puis ne voit et ne modifie **que les siens** : la fiche d'un prospect pris par un collègue lui est fermée (403), y compris par son adresse ;
+- **un admin ne prend aucun prospect et ne modifie aucun suivi** : pas de bouton « Prendre », fiches en lecture seule. Il voit l'avancement de toutes les opportunités, filtrable par commercial, et peut seulement **libérer** un prospect (un commercial parti ne doit pas garder les siens bloqués). Le serveur refuse toute prise ou modification venant d'un compte admin.
+
+Le suivi vit sur une page à part, **« Mes opportunités »** pour un commercial, **« Suivi des opportunités »** pour un admin (`/suivi`, dans le menu de la page d'accueil et en haut du tableau de bord) :
+
+- des **chiffres clés** : opportunités en cours, puissance et économies en jeu, opportunités signées, **relances dues** (un clic les affiche) ;
+- une vue **Pipeline** (par défaut) : une colonne par étape, avec son nombre d'opportunités et sa puissance, et une carte par opportunité (potentiel, économies, prochaine action — en rouge si due, signalée si absente —, décideur) ; ou une vue **Liste**, en tableau, filtrable par étape. Le choix reste mémorisé dans le navigateur ;
+- la liste des opportunités prises — les siennes pour un commercial, toutes (ou celles d'un commercial) pour un admin — avec étape, prochaine relance (en rouge si due), décideur, potentiel, économies et dernière action ;
+- la **fiche de suivi** de chaque opportunité, avec son **pipeline** en tête (étapes passées cochées, étape actuelle en évidence, issue signé ou perdu ; un clic sur une étape la prépare dans « Suivi ») puis des parties repliables, une ouverte à la fois :
+  - **Étapes** : À contacter → Contacté → RDV fixé → Visite faite → Devis envoyé → **Signé** / **Perdu** (raison obligatoire : déjà équipée, pas intéressée, toiture inadaptée, trop cher, concurrent, injoignable, autre). « Perdu — déjà équipée » et le bouton « Déjà équipée » sont le même constat : l'entreprise sort de la liste des prospects, et y revient quand on change d'avis
+  - **Prochaine action**, enregistrée avec l'étape par un seul bouton : date et objet (proposé selon l'étape : « Fixer un rendez-vous », « Envoyer le devis »…). Changer d'étape sans nouvelle date efface l'ancienne relance, qui concernait l'étape d'avant ; pas de relance dans le passé, ni pour un prospect signé ou perdu
+  - **Décideur** : nom, fonction, téléphone, e-mail
+  - **Visite** : consommation annuelle lue sur la facture — elle remplace les économies maximales par les **économies réelles** (seule la production consommée sur place compte) —, état de la toiture, vraie inclinaison et orientation des panneaux, qui redemandent le productible à PVGIS
+  - **Notes** datées et signées, et **historique** de toutes les actions sur l'entreprise (tiré de `audit_log`, où chaque geste est noté dans la même transaction)
+
+L'export CSV des prospects indique qui suit chacun (« Pris par »). Données : colonnes `crm_*`, `decideur_*` et `visite_*` de `companies`, table `crm_notes` ; règles dans `services/crm.py`, routes dans `web/crm.py`, page `templates/suivi.html` et `static/js/suivi.js`, fiche `static/js/crm.js`.
+
 ### Calculer le potentiel solaire
 
 Le tableau de bord s'alimente d'un calcul en masse qui, pour chaque entreprise, cherche le toit sous ses coordonnées et en déduit le nombre de panneaux installables :
@@ -454,6 +476,11 @@ supprimés, dont la ligne d'origine disparaît mais dont la trace, elle, reste.
 app.py                  Serveur Flask + logique Overpass/cache/calcul de surface + persistance PostgreSQL
 services/solar.py         Hypothèses d'installation et estimation kWc — source unique, sans I/O
 services/pvgis.py         Productible solaire du lieu (kWh/kWc/an) demandé à PVGIS, mis en cache par zone
+services/crm.py           CRM : étapes de vente, prise en charge, relances, décideur, visite, notes, historique
+web/crm.py                Routes de la fiche de suivi (/api/crm/…)
+static/js/crm.js          Fiche de suivi d'une opportunité (panneau latéral de la page /suivi)
+templates/suivi.html      Page « Mes opportunités » (suivi des prospects pris)
+static/js/suivi.js        Logique de cette page (étapes, filtres, liste)
 services/segmentation.py         Segmentation IA des bâtiments (extraction imagerie satellite + MobileSAM)
 import_companies.py     Import en masse des entreprises depuis un/des export(s) .xlsx vers PostgreSQL
 import_ms_buildings.py  Import des empreintes de bâtiments Microsoft (.geojsonl) vers PostgreSQL
@@ -514,6 +541,9 @@ accès sans session redirige vers la page de connexion (`GET /login`,
 - `POST /api/chatbot/lancer` — réponse à la confirmation (`{"lancer": true}` lance la recherche en arrière-plan, `false` l'annule)
 - `GET /api/chatbot/etat` — état de la recherche lancée (`aucune`, `en_cours`, `fini` avec le bilan et les lieux, ou `erreur`), interrogé par la page jusqu'au résultat
 - `POST /api/chatbot/nouveau` — repart d'une conversation vide
+- `GET /api/crm/<id>` — fiche de suivi d'une entreprise (étape, commercial, relance, décideur, visite, calculs, notes, historique) ; `POST /api/crm/<id>/prendre`, `/liberer`, `/suivi` (étape et prochaine action ensemble), `/decideur`, `/visite`, `/notes` — chaque action renvoie la fiche à jour, ou l'erreur expliquée (400, 403, 404, 409)
+- `GET /suivi` — page « Mes opportunités » ; `GET /api/crm/opportunites?commercial=moi|tous|<id>&statut=&relances=1&search=` — opportunités prises, compteurs par étape et relances dues
+- `GET /api/crm/references` — libellés des étapes, raisons et états de toiture, liste des commerciaux ; `GET /api/crm/relances` — relances du jour et en retard du compte connecté
 - `GET /api/prospect_filters` — villes et catégories présentes parmi les prospects calculés, triées par fréquence et accompagnées du nombre de prospects, pour alimenter les listes déroulantes du tableau de bord
 - `GET /api/prospects?min_kwc=&city=&category=&search=&limit=&offset=` — prospects avec leur potentiel solaire, triés par puissance décroissante, accompagnés des statistiques globales et de `total_filtered` (nombre total après filtres, pour la pagination). `limit` vaut 50 par défaut, `offset` 0. `city` et `category` sont comparés à l'identique (casse et espaces de bord ignorés), `search` reste flou sur le nom et l'adresse
 - `GET /api/prospects.csv?...` — même liste au format CSV (séparateur `;`, BOM UTF-8 pour Excel), mêmes filtres

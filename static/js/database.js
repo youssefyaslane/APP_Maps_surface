@@ -18,8 +18,10 @@
 
   function check(list, state, label, detail) {
     const li = el("li", `db-check is-${state}`);
-    const icon = { ok: "✓", ko: "✗", warn: "!", na: "–" }[state];
-    li.append(el("span", "db-check-icon", icon));
+    const nom = { ok: "valide", ko: "fermer", warn: "exclamation", na: "tiret" }[state];
+    const icon = el("span", "db-check-icon");
+    icon.innerHTML = window.icone ? window.icone(nom) : "";
+    li.append(icon);
     const text = el("span", "db-check-text");
     text.append(el("strong", null, label));
     if (detail) text.append(el("span", "db-check-detail", detail));

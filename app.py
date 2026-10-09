@@ -22,7 +22,8 @@ from services import segmentation
 from services.etat_base import _start_database
 from services.reglages import CACHE_DIR
 from services.toits import _prewarm_cities
-from web import accueil, admin, auth, carte, chatbot, secours, tableau_de_bord
+from web import accueil, admin, auth, carte, chatbot, crm, secours, tableau_de_bord
+from web.icones import icone, script_icones
 
 app = Flask(__name__)
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
@@ -64,8 +65,12 @@ def _get_secret_key():
 
 app.secret_key = _get_secret_key()
 
+# Icônes SVG de l'interface (web/icones.py) : icone() dans les gabarits, et
+# script_icones() en tête de page pour window.icone() dans les scripts.
+app.jinja_env.globals.update(icone=icone, script_icones=script_icones)
+
 # « auth » d'abord : son contrôle d'accès s'applique à toutes les pages.
-for module in (auth, accueil, carte, tableau_de_bord, admin, secours, chatbot):
+for module in (auth, accueil, carte, tableau_de_bord, admin, secours, chatbot, crm):
     app.register_blueprint(module.bp)
 
 

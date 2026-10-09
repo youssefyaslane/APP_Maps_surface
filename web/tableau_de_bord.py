@@ -17,6 +17,16 @@ from services.solar import estimate_solar as _estimate_solar
 
 bp = Blueprint("tableau", __name__)
 
+
+def _filtres_crm():
+    """Filtres du CRM lus dans la requête (voir _prospects_filter_clauses)."""
+    return {
+        "statut": request.args.get("statut") or None,
+        "commercial": request.args.get("commercial") or None,
+        "user_id": session.get("user_id"),
+        "relances": request.args.get("relances") == "1",
+    }
+
 @bp.route("/dashboard")
 def dashboard():
     return render_template("dashboard.html")
@@ -51,6 +61,7 @@ def api_prospect_filters():
             search=request.args.get("search"),
             equipped=request.args.get("equipped") == "1",
             pv=request.args.get("pv"),
+            **_filtres_crm(),
         )
     )
 
@@ -71,6 +82,7 @@ def api_prospects():
         search=request.args.get("search"),
         equipped=request.args.get("equipped") == "1",
         pv=request.args.get("pv"),
+        **_filtres_crm(),
     )
     prospects = _query_prospects(**filters, limit=limit, offset=offset)
     total_filtered = _count_prospects(**filters)
@@ -95,6 +107,7 @@ def api_prospects_csv():
         search=request.args.get("search"),
         equipped=request.args.get("equipped") == "1",
         pv=request.args.get("pv"),
+        **_filtres_crm(),
     )
 
     buffer = io.StringIO()
@@ -105,7 +118,7 @@ def api_prospects_csv():
             "Surface toit (m²)", "Source toit", "Toit partagé", "Entreprises sur ce toit",
             "Panneaux estimés", "Puissance (kWc)", "Production (MWh/an)",
             "Productible (kWh/kWc/an)", "CO₂ évité (t/an)", "Économies max (DH/an)",
-            "Latitude", "Longitude",
+            "Pris par", "Latitude", "Longitude",
             "Panneaux déjà posés (détection)", "Confiance détection",
         ]
     )
@@ -117,7 +130,8 @@ def api_prospects_csv():
                 p["email"], p["website"], p["roof_area_m2"], p["roof_source"],
                 "oui" if shared > 1 else "non", shared,
                 p["solar_panels"], p["solar_kwc"], p["production_mwh"],
-                p["solar_yield_kwh_kwc"], p["co2_t"], p["economies_dh"], p["lat"], p["lon"],
+                p["solar_yield_kwh_kwc"], p["co2_t"], p["economies_dh"],
+                p["crm_commercial"], p["lat"], p["lon"],
                 (p["pv"] or {}).get("verdict", "non analysé"), (p["pv"] or {}).get("confiance"),
             ]
         )

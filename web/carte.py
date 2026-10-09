@@ -443,6 +443,8 @@ def api_companies():
                 "roof_area_m2": r["roof_area_m2"],
                 "solar_kwc": r["solar_kwc"],
                 "solar_yield_kwh_kwc": r["solar_yield_kwh_kwc"],
+                "crm_commercial_id": r["crm_commercial_id"],
+                "crm_commercial": r["crm_commercial"],
                 "has_roof": r["has_roof"],
                 "equipped": r["equipped"],
             },

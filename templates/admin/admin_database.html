@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/database.css') }}" />
+  {{ script_icones() }}
 </head>
 <body>
   <header class="dash-header">
@@ -93,9 +94,9 @@ docker compose up -d</code></pre>
         <div class="db-tile">
           <span class="db-tile-k">SSL</span>
           {% if report.ssl %}
-            <span class="db-tile-v is-good">✓ Échanges chiffrés</span>
+            <span class="db-tile-v is-good">{{ icone("valide") }} Échanges chiffrés</span>
           {% elif report.ssl is sameas false %}
-            <span class="db-tile-v is-warn">✗ Non chiffrés</span>
+            <span class="db-tile-v is-warn">{{ icone("fermer") }} Non chiffrés</span>
           {% else %}
             <span class="db-tile-v">—</span>
           {% endif %}
@@ -220,7 +221,7 @@ docker compose up -d</code></pre>
             <span class="db-label">Mot de passe <span class="db-req" id="db-pw-req">*</span></span>
             <span class="db-pw">
               <input name="password" id="db-password" type="password" autocomplete="new-password" />
-              <button type="button" class="db-eye" id="db-eye" aria-label="Afficher le mot de passe" aria-pressed="false">👁</button>
+              <button type="button" class="db-eye" id="db-eye" aria-label="Afficher le mot de passe" aria-pressed="false">{{ icone("oeil") }}</button>
             </span>
             <span class="db-hint">Chiffré avant d'être enregistré, et jamais renvoyé au navigateur.</span>
           </label>

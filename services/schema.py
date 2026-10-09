@@ -12,7 +12,7 @@ prête ne change rien.
 # Ordre de copie : une table n'arrive qu'après celles qu'elle référence
 # (ia_segments.created_by et audit_log.user_id pointent sur users).
 COPY_ORDER = ("users", "companies", "ia_segments", "ms_buildings", "osm_buildings", "audit_log",
-              "pv_detections")
+              "pv_detections", "crm_notes")
 
 # Sans elles, l'application ne fonctionne pas. osm_buildings est facultative :
 # tant qu'elle est vide ou absente, les bâtiments viennent d'Overpass.
@@ -21,7 +21,7 @@ REQUIRED_TABLES = ("users", "companies", "ia_segments", "ms_buildings", "audit_l
 # Tables à identifiant SERIAL. Une copie qui conserve les identifiants laisse
 # leur séquence à 1 : sans recalage, le premier compte ou le premier toit créé
 # sur la nouvelle base réutiliserait un identifiant déjà copié.
-SERIAL_TABLES = ("users", "companies", "ia_segments", "ms_buildings", "audit_log")
+SERIAL_TABLES = ("users", "companies", "ia_segments", "ms_buildings", "audit_log", "crm_notes")
 
 # Clé par laquelle la synchronisation rapproche une ligne de sa copie. `id`
 # partout, sauf pour les bâtiments OSM, identifiés par leur numéro OSM, et les
@@ -263,3 +263,48 @@ def create_all(cur):
         )
         """
     )
+    # CRM des commerciaux (services/crm.py). Le suivi de chaque prospect vit
+    # sur sa ligne : étape de vente (NULL = « à contacter »), commercial qui
+    # l'a pris, prochaine relance, décideur, et ce qui a été constaté lors de
+    # la visite — consommation lue sur la facture, état de la toiture, vraie
+    # pente et orientation des panneaux.
+    cur.execute(
+        """
+        ALTER TABLE companies
+            ADD COLUMN IF NOT EXISTS crm_statut TEXT,
+            ADD COLUMN IF NOT EXISTS crm_raison_perte TEXT,
+            ADD COLUMN IF NOT EXISTS crm_commercial_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS crm_pris_le TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS crm_relance_le DATE,
+            ADD COLUMN IF NOT EXISTS crm_relance_objet TEXT,
+            ADD COLUMN IF NOT EXISTS crm_maj_le TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS decideur_nom TEXT,
+            ADD COLUMN IF NOT EXISTS decideur_fonction TEXT,
+            ADD COLUMN IF NOT EXISTS decideur_telephone TEXT,
+            ADD COLUMN IF NOT EXISTS decideur_email TEXT,
+            ADD COLUMN IF NOT EXISTS visite_conso_kwh_an DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS visite_etat_toiture TEXT,
+            ADD COLUMN IF NOT EXISTS visite_inclinaison DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS visite_orientation DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS visite_productible DOUBLE PRECISION
+        """
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_companies_crm_commercial ON companies (crm_commercial_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_companies_crm_relance ON companies (crm_relance_le)"
+    )
+    # Notes des commerciaux (appels, visites, échanges), datées et signées.
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS crm_notes (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            texte TEXT NOT NULL,
+            cree_le TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_crm_notes_company ON crm_notes (company_id)")

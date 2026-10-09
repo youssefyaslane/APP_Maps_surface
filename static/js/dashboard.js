@@ -6,6 +6,10 @@ const categoryEl = document.getElementById("filter-category");
 const minKwcEl = document.getElementById("filter-min-kwc");
 const viewEl = document.getElementById("filter-view");
 const pvEl = document.getElementById("filter-pv");
+// Compte connecté : décide si le bouton d'une ligne dit « Prendre » ou « Pris par moi ».
+// Un admin ne prend pas de prospect : il voit seulement qui les suit.
+let moi = null;
+let admin = false;
 const exportEl = document.getElementById("export-csv");
 const resultCountEl = document.getElementById("result-count");
 const paginationEl = document.getElementById("pagination");
@@ -124,6 +128,23 @@ function renderStats(summary) {
   );
 }
 
+// Prise en charge par un commercial : « Prendre » si personne ne suit le
+// prospect, sinon qui le suit (le suivi lui-même vit sur la page /suivi).
+function boutonPrendre(p) {
+  if (admin) {
+    return p.crm_commercial_id
+      ? `<a class="pris-moi" href="/suivi?fiche=${p.id}" title="Voir son suivi">${icone("utilisateur")} ${escapeHtml(p.crm_commercial)}</a>`
+      : `<span class="pris-autre">Libre</span>`;
+  }
+  if (!p.crm_commercial_id) {
+    return `<button type="button" class="btn-prendre" title="Ajouter à mes opportunités">${icone("prendre")} Prendre</button>`;
+  }
+  if (p.crm_commercial_id === moi) {
+    return `<a class="pris-moi" href="/suivi?fiche=${p.id}" title="Ouvrir son suivi">${icone("valide")} Pris par moi</a>`;
+  }
+  return `<span class="pris-autre" title="Suivi par ${escapeHtml(p.crm_commercial)}">${icone("utilisateur")} ${escapeHtml(p.crm_commercial)}</span>`;
+}
+
 // `startRank` est le rang du premier prospect de la page. Sans lui, la
 // numérotation repartait de 1 à chaque page : le 51e prospect par puissance
 // s'affichait « 1 », au même rang que la plus grosse toiture de la base.
@@ -131,8 +152,8 @@ function renderRows(prospects, startRank) {
   const equippedView = viewEl.value === "1";
   if (!prospects.length) {
     bodyEl.innerHTML = equippedView
-      ? `<tr><td colspan="15" class="empty">Aucune entreprise n'est marquée comme déjà équipée.</td></tr>`
-      : `<tr><td colspan="15" class="empty">
+      ? `<tr><td colspan="17" class="empty">Aucune entreprise n'est marquée comme déjà équipée.</td></tr>`
+      : `<tr><td colspan="17" class="empty">
       Aucun prospect ne correspond. Lancez <code>python -m scripts.compute_solar_potential</code>
       pour calculer le potentiel solaire des entreprises.
     </td></tr>`;
@@ -142,8 +163,8 @@ function renderRows(prospects, startRank) {
   bodyEl.innerHTML = prospects
     .map((p, idx) => {
       const contact = [
-        p.phone ? `<a href="tel:${escapeHtml(p.phone)}">📞 ${escapeHtml(p.phone)}</a>` : "",
-        p.website ? `<a href="${escapeHtml(p.website)}" target="_blank" rel="noopener">🌐 Site</a>` : "",
+        p.phone ? `<a href="tel:${escapeHtml(p.phone)}">${icone("telephone")} ${escapeHtml(p.phone)}</a>` : "",
+        p.website ? `<a href="${escapeHtml(p.website)}" target="_blank" rel="noopener">${icone("globe")} Site</a>` : "",
       ].join("");
 
       // Un toit ne s'équipe qu'une fois : si plusieurs entreprises y sont
@@ -152,10 +173,10 @@ function renderRows(prospects, startRank) {
       const roofStatus = isShared
         ? `<span class="roof-shared" title="Ce toit est aussi rattaché à ${
             p.shared_count - 1
-          } autre(s) entreprise(s) — la surface n'est pas disponible pour ce seul prospect">⚠ Partagé × ${
+          } autre(s) entreprise(s) — la surface n'est pas disponible pour ce seul prospect">${icone("alerte")} Partagé × ${
             p.shared_count
           }</span>`
-        : `<span class="roof-exclusive" title="Aucune autre entreprise connue sur ce toit">✓ Exclusif</span>`;
+        : `<span class="roof-exclusive" title="Aucune autre entreprise connue sur ce toit">${icone("valide")} Exclusif</span>`;
 
       return `
         <tr data-id="${p.id}" data-name="${escapeHtml(p.name)}"${isShared ? ' class="is-shared"' : ""}>
@@ -176,8 +197,11 @@ function renderRows(prospects, startRank) {
           <td class="roof-status">${roofStatus}</td>
           <td>${pvBadge(p.pv)}</td>
           <td class="contact">${contact || "—"}</td>
-          <td class="row-actions">
-            <a class="map-link" href="/carte?lat=${p.lat}&lon=${p.lon}" title="Voir sur la carte">🗺️ Voir</a>
+          <td class="col-action">${boutonPrendre(p)}</td>
+          <td class="col-action">
+            <a class="map-link" href="/carte?lat=${p.lat}&lon=${p.lon}" title="Voir sur la carte">${icone("carte")} Voir</a>
+          </td>
+          <td class="col-action">
             <button type="button" class="btn-equipped" data-equipped="${equippedView ? "false" : "true"}"
                     title="${equippedView ? "Remettre dans la liste des prospects" : "Déjà équipée de panneaux : retirer de la liste"}">${equippedView ? "Rétablir" : "Déjà équipée"}</button>
           </td>
@@ -220,7 +244,7 @@ function renderPagination(totalFiltered) {
 }
 
 async function load() {
-  bodyEl.innerHTML = `<tr><td colspan="15" class="empty">Chargement...</td></tr>`;
+  bodyEl.innerHTML = `<tr><td colspan="17" class="empty">Chargement...</td></tr>`;
   const params = currentFilters();
   exportEl.href = `/api/prospects.csv?${params.toString()}`;
 
@@ -245,7 +269,7 @@ async function load() {
       : "";
     resultCountEl.textContent = `${fmt(start)}–${fmt(end)} sur ${fmt(data.total_filtered)} ${label}${hidden}`;
   } catch (err) {
-    bodyEl.innerHTML = `<tr><td colspan="15" class="empty">Erreur de chargement : ${escapeHtml(err.message)}</td></tr>`;
+    bodyEl.innerHTML = `<tr><td colspan="17" class="empty">Erreur de chargement : ${escapeHtml(err.message)}</td></tr>`;
     paginationEl.innerHTML = "";
   }
 }
@@ -322,6 +346,23 @@ document.getElementById("reset-filters").addEventListener("click", () => {
 // cliquer sur « Filtrer ».
 [cityEl, categoryEl, viewEl, pvEl].forEach((el) => el.addEventListener("change", applyFiltersAndReload));
 
+// « Prendre » : le commercial ajoute ce prospect à ses opportunités, suivies
+// sur la page /suivi. Premier arrivé, premier servi.
+bodyEl.addEventListener("click", async (e) => {
+  const btn = e.target.closest(".btn-prendre");
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    const resp = await fetch(`/api/crm/${btn.closest("tr").dataset.id}/prendre`, { method: "POST" });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(data.error || "La prise a échoué. Réessayez.");
+    load();
+  } catch (err) {
+    btn.disabled = false;
+    alert(err.message);
+  }
+});
+
 // « Déjà équipée » : l'entreprise a déjà des panneaux, elle sort de la liste
 // des prospects et des totaux sans être supprimée. « Rétablir » l'y remet.
 bodyEl.addEventListener("click", async (e) => {
@@ -350,4 +391,8 @@ bodyEl.addEventListener("click", async (e) => {
 });
 
 loadFilterOptions();
-load();
+fetch("/api/crm/references")
+  .then((r) => r.json())
+  .then((ref) => { moi = ref.moi; admin = ref.admin; })
+  .catch(() => {})
+  .finally(load);

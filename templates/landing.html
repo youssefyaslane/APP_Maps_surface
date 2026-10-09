@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/landing.css') }}" />
+  {{ script_icones() }}
 </head>
 <body>
 
@@ -25,6 +26,8 @@
     <nav class="nav-links">
       <a href="/carte">Carte</a>
       <a class="nav-cta" href="/dashboard">Liste des prospects</a>
+      {# Suivi commercial : « Mes opportunités » pour un commercial, toutes pour un admin. #}
+      <a href="{{ url_for('crm.suivi') }}">{{ "Suivi des opportunités" if current_user and current_user.is_admin else "Mes opportunités" }}</a>
       {# Réservé à l'accueil : ce menu ne se répète pas sur la carte ni le
          tableau de bord, pour ne pas y ajouter une entrée que la grande
          majorité des personnes connectées ne peut de toute façon pas
@@ -36,14 +39,14 @@
           <a href="/admin/users" class="nav-dropdown-trigger">Administration <span class="nav-dropdown-caret">▾</span></a>
           <div class="nav-dropdown-panel">
             <a class="admin-menu-item" href="/admin/users">
-              <span class="admin-menu-icon">👤</span>
+              <span class="admin-menu-icon">{{ icone("utilisateur") }}</span>
               <span class="admin-menu-text">
                 <span class="admin-menu-title">Créer un compte</span>
                 <span class="admin-menu-desc">Accès commercial ou admin</span>
               </span>
             </a>
             <a class="admin-menu-item" href="{{ url_for('admin.admin_database') }}">
-              <span class="admin-menu-icon">🗄️</span>
+              <span class="admin-menu-icon">{{ icone("base") }}</span>
               <span class="admin-menu-text">
                 <span class="admin-menu-title">Base de données</span>
                 <span class="admin-menu-desc">Connexion et migration</span>
@@ -52,7 +55,7 @@
             {# Entrée volontairement inactive : la page n'existe pas encore,
                seule l'entrée de menu est posée pour l'instant. #}
             <span class="admin-menu-item is-disabled" aria-disabled="true">
-              <span class="admin-menu-icon">📊</span>
+              <span class="admin-menu-icon">{{ icone("graphique") }}</span>
               <span class="admin-menu-text">
                 <span class="admin-menu-title">Dashboard commerciaux</span>
                 <span class="admin-menu-desc">KPI par commercial</span>

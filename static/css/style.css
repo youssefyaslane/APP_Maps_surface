@@ -906,3 +906,19 @@ body.rail-closed .status { left: 50%; }
 
   .company-panel { padding: 26px 20px; }
 }
+
+/* Fiche entreprise : lien vers sa fiche de suivi CRM (tableau de bord). */
+.fiche-crm-lien {
+  display: inline-block;
+  margin: 12px 0 4px;
+  padding: 7px 12px;
+  border: 1px solid #2e7d32;
+  border-radius: 8px;
+  color: #2e7d32;
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+}
+.fiche-crm-lien:hover { background: #ddebe0; }
+button.fiche-crm-lien { background: #fff; font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
+button.fiche-crm-lien:disabled { opacity: 0.5; cursor: default; }

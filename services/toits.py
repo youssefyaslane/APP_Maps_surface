@@ -246,10 +246,11 @@ def _query_companies(bbox):
         with conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, name, category, address, city, phone, email, website, rating,
-                       lon, lat, roof_area_m2, solar_kwc, equipped_at, solar_yield_kwh_kwc
-                FROM companies
-                WHERE lat BETWEEN %s AND %s AND lon BETWEEN %s AND %s
+                SELECT c.id, c.name, c.category, c.address, c.city, c.phone, c.email, c.website,
+                       c.rating, c.lon, c.lat, c.roof_area_m2, c.solar_kwc, c.equipped_at,
+                       c.solar_yield_kwh_kwc, c.crm_commercial_id, COALESCE(u.display_name, u.username)
+                FROM companies c LEFT JOIN users u ON u.id = c.crm_commercial_id
+                WHERE c.lat BETWEEN %s AND %s AND c.lon BETWEEN %s AND %s
                 """,
                 (south, north, west, east),
             )
@@ -274,6 +275,8 @@ def _query_companies(bbox):
             "has_roof": r[11] is not None,
             "equipped": r[13] is not None,
             "solar_yield_kwh_kwc": r[14],
+            "crm_commercial_id": r[15],
+            "crm_commercial": r[16],
         }
         for r in rows
     ]

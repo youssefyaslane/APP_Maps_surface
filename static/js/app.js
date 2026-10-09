@@ -368,13 +368,13 @@ async function refreshCompanyRoofStatus() {
 function showCompanyTooltip(e, props) {
   const category = props.category ? `<div>${escapeHtml(props.category)}</div>` : "";
   const address = props.address ? `<div>${escapeHtml(props.address)}</div>` : "";
-  const phone = props.phone ? `<div>📞 ${escapeHtml(props.phone)}</div>` : "";
+  const phone = props.phone ? `<div>${icone("telephone")} ${escapeHtml(props.phone)}</div>` : "";
   const roof = props.has_roof
-    ? `<div class="solar">🏠 ${props.roof_area_m2.toLocaleString("fr-FR")} m²${
-        props.solar_kwc ? ` — ☀️ ${props.solar_kwc.toLocaleString("fr-FR")} kWc` : ""
+    ? `<div class="solar">${icone("maison")} ${props.roof_area_m2.toLocaleString("fr-FR")} m²${
+        props.solar_kwc ? ` — ${icone("soleil")} ${props.solar_kwc.toLocaleString("fr-FR")} kWc` : ""
       }${productionText(props.solar_kwc, props.solar_yield_kwh_kwc)}</div>`
-    : `<div class="no-roof">⚠️ Aucun toit identifié</div>`;
-  const equipped = props.equipped ? `<div class="equipped">✓ Déjà équipée de panneaux</div>` : "";
+    : `<div class="no-roof">${icone("alerte")} Aucun toit identifié</div>`;
+  const equipped = props.equipped ? `<div class="equipped">${icone("valide")} Déjà équipée de panneaux</div>` : "";
   tooltipEl.innerHTML = `
     <div><strong>${escapeHtml(props.name || "Entreprise")}</strong></div>
     ${category}
@@ -412,13 +412,49 @@ let companyRoofHighlight = null;
 
 // « Déjà équipée » dans la fiche : même geste que dans le tableau de bord.
 // Le marqueur passe au gris (ou revient) dès l'enregistrement.
+// Prise en charge par un commercial, comme sur le tableau de bord : « Prendre »
+// ajoute l'entreprise à ses opportunités, suivies sur la page /suivi.
+async function renderPrise(props) {
+  const box = document.getElementById("company-prise");
+  if (!box) return;
+  if (props.crm_commercial_id) {
+    // Le suivi d'un prospect n'est ouvert qu'à son commercial et aux admins.
+    const ouvert = props.crm_commercial_id === window.CURRENT_USER?.id || window.CURRENT_USER?.is_admin;
+    box.innerHTML = ouvert
+      ? `<a class="fiche-crm-lien" href="/suivi?fiche=${encodeURIComponent(props.id)}">${icone("dossier")} Suivi par ${escapeHtml(props.crm_commercial || "un commercial")}</a>`
+      : `<p class="equipped-note">${icone("utilisateur")} Suivi par ${escapeHtml(props.crm_commercial || "un autre commercial")}</p>`;
+    return;
+  }
+  if (window.CURRENT_USER?.is_admin) {
+    box.innerHTML = `<p class="equipped-note">Aucun commercial ne suit ce prospect.</p>`;
+    return;
+  }
+  box.innerHTML = `<button type="button" class="fiche-crm-lien">${icone("prendre")} Prendre ce prospect</button>`;
+  box.querySelector("button").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      const resp = await fetch(`/api/crm/${props.id}/prendre`, { method: "POST" });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || "La prise a échoué. Réessayez.");
+      props.crm_commercial_id = data.commercial?.id;
+      props.crm_commercial = data.commercial?.nom;
+      renderPrise(props);
+    } catch (err) {
+      btn.disabled = false;
+      setStatus(err.message, true);
+      setTimeout(() => setStatus(null), 3000);
+    }
+  });
+}
+
 function renderEquipped(props) {
   const box = document.getElementById("company-equipped");
   if (!box) return;
   box.innerHTML = `
     <p class="equipped-note">${
       props.equipped
-        ? "✓ Déjà équipée de panneaux : retirée de la liste des prospects."
+        ? `${icone("valide")} Déjà équipée de panneaux : retirée de la liste des prospects.`
         : "Cette entreprise a déjà des panneaux solaires ?"
     }</p>
     <button type="button" class="equipped-toggle${props.equipped ? " is-equipped" : ""}">${
@@ -453,17 +489,19 @@ function openCompanyPanel(props, latlng) {
   companyPanelContentEl.innerHTML = `
     <h2>${escapeHtml(props.name || "Entreprise")}</h2>
     ${categoryBadge}
-    ${field("📍", "Adresse", props.address)}
-    ${field("🏙️", "Ville", props.city)}
-    ${field("📞", "Téléphone", props.phone)}
-    ${field("✉️", "Email", props.email)}
-    ${field("🌐", "Site web", props.website, true)}
+    ${field(icone("repere"), "Adresse", props.address)}
+    ${field(icone("immeuble"), "Ville", props.city)}
+    ${field(icone("telephone"), "Téléphone", props.phone)}
+    ${field(icone("courriel"), "Email", props.email)}
+    ${field(icone("globe"), "Site web", props.website, true)}
     <div class="field" id="company-roof-field">
-      <span class="field-icon">🏠</span>
+      <span class="field-icon">${icone("maison")}</span>
       <span class="field-body"><span class="field-label">Toit</span>Recherche...</span>
     </div>
+    <div class="company-prise" id="company-prise"></div>
     <div class="company-equipped" id="company-equipped"></div>
   `;
+  renderPrise(props);
   renderEquipped(props);
   companyPanelEl.classList.remove("hidden");
   if (companyRoofHighlight) {
@@ -504,7 +542,7 @@ async function loadCompanyRoof(latlng, yieldKwhKwc) {
 
     const solar = estimateSolarPanels(data.area_m2);
     const solarText = solar
-      ? ` — ☀️ ~${solar.nPanels} panneau(x) (${solar.capacityKWc.toLocaleString("fr-FR")} kWc)` +
+      ? ` — ${icone("soleil")} ~${solar.nPanels} panneau(x) (${solar.capacityKWc.toLocaleString("fr-FR")} kWc)` +
         productionText(solar.capacityKWc, yieldKwhKwc)
       : "";
     roofFieldEl.querySelector(".field-body").innerHTML =
@@ -618,10 +656,10 @@ const SOLAR = window.SOLAR_CONFIG;
 function productionText(kwc, yieldKwhKwc) {
   if (!kwc || !yieldKwhKwc) return "";
   const mwh = (kwc * yieldKwhKwc) / 1000;
-  const co2 = SOLAR ? ` — 🌱 ${Math.round(mwh * SOLAR.co2_t_per_mwh).toLocaleString("fr-FR")} t CO₂ évitées/an` : "";
+  const co2 = SOLAR ? ` — ${icone("feuille")} ${Math.round(mwh * SOLAR.co2_t_per_mwh).toLocaleString("fr-FR")} t CO₂ évitées/an` : "";
   const dh = SOLAR ? mwh * 1000 * SOLAR.autoconsommation * SOLAR.tarif_dh_per_kwh : 0;
-  const economies = dh ? ` — 💰 jusqu'à ${Math.round(dh).toLocaleString("fr-FR")} DH/an` : "";
-  return ` — ⚡ ${Math.round(mwh).toLocaleString("fr-FR")} MWh/an${co2}${economies}`;
+  const economies = dh ? ` — ${icone("billet")} jusqu'à ${Math.round(dh).toLocaleString("fr-FR")} DH/an` : "";
+  return ` — ${icone("eclair")} ${Math.round(mwh).toLocaleString("fr-FR")} MWh/an${co2}${economies}`;
 }
 
 function estimateSolarPanels(area_m2) {
@@ -636,7 +674,7 @@ function showTooltip(e, props) {
   const levels = props.levels ? `<div>Étages: ${props.levels}</div>` : "";
   const solar = estimateSolarPanels(props.area_m2);
   const solarLine = solar
-    ? `<div class="solar">☀️ ~${solar.nPanels} panneau(x) (${solar.capacityKWc.toLocaleString("fr-FR")} kWc)</div>`
+    ? `<div class="solar">${icone("soleil")} ~${solar.nPanels} panneau(x) (${solar.capacityKWc.toLocaleString("fr-FR")} kWc)</div>`
     : "";
   tooltipEl.innerHTML = `
     <div><strong>${escapeHtml(props.name || "Bâtiment")}</strong></div>

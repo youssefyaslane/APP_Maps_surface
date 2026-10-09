@@ -1,0 +1,410 @@
+/* CRM : bouton « Prendre » du tableau de bord, page « Mes opportunités » (/suivi)
+   et fiche latérale de suivi (static/js/crm.js). */
+
+/* En-tête : lien entre « Prospects solaires » et « Mes opportunités ». */
+.lien-suivi {
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 8px;
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.lien-suivi:hover { background: rgba(255, 255, 255, 0.12); }
+
+/* Tableau de bord : prise en charge d'un prospect. */
+.btn-prendre {
+  padding: 3px 9px;
+  border: 1px solid #2e7d32;
+  border-radius: 6px;
+  background: #2e7d32;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-prendre:hover { background: #1f5130; }
+.btn-prendre:disabled { opacity: 0.5; cursor: default; }
+/* Une colonne par action (Prendre, Voir, Déjà équipée). */
+td.col-action { white-space: nowrap; }
+.pris-moi { font-size: 12px; font-weight: 600; color: #2e7d32; text-decoration: none; white-space: nowrap; }
+.pris-moi:hover { text-decoration: underline; }
+.pris-autre { font-size: 12px; color: #78909c; white-space: nowrap; }
+
+.suivi-sous { display: block; margin-top: 2px; font-size: 12px; color: #78909c; text-decoration: none; }
+.relance-due { color: #c62828; font-weight: 600; }
+
+/* Le nom ouvre la fiche : un bouton, présenté comme le texte qu'il était. */
+.company-name.btn-fiche {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.company-name.btn-fiche:hover { color: #2e7d32; text-decoration: underline; }
+.btn-fiche-lien {
+  padding: 3px 9px;
+  border: 1px solid #2e7d32;
+  border-radius: 6px;
+  background: #fff;
+  color: #2e7d32;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn-fiche-lien:hover { background: #ddebe0; }
+
+.crm-etape {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eceff1;
+  color: #37474f;
+  font-weight: 600;
+}
+.etape-contacte { background: #e3f2fd; color: #1565c0; }
+.etape-rdv_fixe { background: #ede7f6; color: #5e35b1; }
+.etape-visite_faite { background: #fff3e0; color: #8a4b00; }
+.etape-devis_envoye { background: #fff8e1; color: #8d6e00; }
+.etape-signe { background: #ddebe0; color: #1f5130; }
+.etape-perdu { background: #fdecea; color: #8a1c12; }
+
+.btn-relances {
+  padding: 8px 12px;
+  border: 1px solid #cfd8dc;
+  border-radius: 6px;
+  background: #fff;
+  color: #37474f;
+  font: inherit;
+  cursor: pointer;
+}
+.btn-relances.a-faire { border-color: #ef6c00; color: #8a4b00; font-weight: 600; }
+.btn-relances[aria-pressed="true"] { background: #1f5130; border-color: #1f5130; color: #fff; }
+
+/* ---------- fiche latérale ---------- */
+/* Au-dessus du bouton du chatbot (z-index 3000), qui couvrirait le bas de la fiche. */
+.crm-voile { position: fixed; inset: 0; z-index: 3100; background: rgba(15, 27, 32, 0.35); }
+.crm-fiche {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3101;
+  width: min(520px, 100vw);
+  overflow-y: auto;
+  padding: 20px 22px 40px;
+  background: #fff;
+  box-shadow: -12px 0 32px rgba(15, 27, 32, 0.18);
+  box-sizing: border-box;
+  font-size: 14px;
+}
+/* `hidden` doit l'emporter sur les display: flex/grid de la fiche (champ « Raison »). */
+.crm-voile[hidden], .crm-fiche[hidden], .crm-fiche [hidden] { display: none !important; }
+.crm-chargement { color: #607d8b; }
+
+.crm-entete { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.crm-entete h2 { margin: 0 0 4px; font-size: 20px; color: #1f5130; }
+.crm-entete p { margin: 0 0 3px; color: #546e7a; }
+.crm-adresse { font-size: 12.5px; }
+.crm-contact { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px !important; }
+.crm-contact a { color: #2e7d32; text-decoration: none; }
+.crm-fermer {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #cfd8dc;
+  border-radius: 50%;
+  background: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* Parties repliables de la fiche : une seule ouverte à la fois. */
+.crm-partie { margin-top: 10px; border: 1px solid #eceff1; border-radius: 10px; background: #fff; }
+.crm-partie[open] { border-color: #c8dfcc; box-shadow: 0 2px 10px rgba(31, 81, 48, 0.06); }
+.crm-partie summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 11px 14px;
+  list-style: none;
+  cursor: pointer;
+}
+.crm-partie summary::-webkit-details-marker { display: none; }
+.crm-chevron { margin-left: auto; color: #90a4ae; transition: transform 0.15s ease; }
+.crm-partie[open] .crm-chevron { transform: rotate(90deg); }
+.crm-partie summary:hover { background: #f7faf8; border-radius: 10px; }
+.crm-resume { overflow: hidden; color: #546e7a; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.crm-corps { padding: 2px 14px 14px; }
+.crm-fiche h3 { flex: none; margin: 0; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #607d8b; }
+.crm-fiche h4 { margin: 14px 0 6px; font-size: 13.5px; color: #37474f; }
+
+.crm-chiffres { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.crm-chiffres div { padding: 10px 12px; border-radius: 8px; background: #f4f6f8; }
+.crm-chiffres b { display: block; font-size: 17px; color: #1f5130; }
+.crm-chiffres span { font-size: 12px; color: #607d8b; }
+.crm-alerte { margin: 0 0 10px; padding: 8px 10px; border-radius: 6px; background: #fdecea; color: #8a1c12; }
+
+.crm-ligne { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.crm-commercial { justify-content: space-between; }
+.crm-grille { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 8px; }
+.crm-champ { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; font-size: 12.5px; color: #546e7a; }
+.crm-fiche input, .crm-fiche select, .crm-fiche textarea {
+  padding: 7px 9px;
+  border: 1px solid #cfd8dc;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  color: #263238;
+  box-sizing: border-box;
+}
+.crm-fiche textarea { width: 100%; margin-bottom: 8px; resize: vertical; }
+.crm-ligne input[type="text"] { flex: 1; min-width: 160px; }
+
+.crm-btn {
+  padding: 7px 12px;
+  border: 1px solid #2e7d32;
+  border-radius: 6px;
+  background: #fff;
+  color: #2e7d32;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.crm-btn.principal { background: #2e7d32; color: #fff; }
+.crm-btn.lien { border-color: transparent; color: #8a1c12; font-weight: 400; }
+.crm-btn:disabled { opacity: 0.5; cursor: default; }
+
+.crm-message { margin: 12px 0 0; padding: 8px 10px; border-radius: 6px; }
+.crm-message.ok { background: #ddebe0; color: #1f5130; }
+.crm-message.erreur { background: #fdecea; color: #8a1c12; }
+.crm-aide { margin: 4px 0 8px; font-size: 12.5px; color: #78909c; }
+.crm-lecture-seule { margin: 12px 0 0; padding: 8px 10px; border-radius: 6px; background: #eceff1; color: #455a64; font-size: 13px; }
+.crm-fiche :disabled { background: #f4f6f8; color: #546e7a; }
+.crm-relance-actuelle { margin: 0 0 8px; }
+.crm-a-enregistrer { margin: 4px 0 10px; padding: 8px 10px; border-radius: 6px; background: #fff8e1; color: #8d6e00; font-size: 12.5px; }
+
+.crm-notes, .crm-historique { margin: 10px 0 0; padding: 0; list-style: none; }
+.crm-notes li { padding: 9px 11px; margin-bottom: 8px; border-radius: 8px; background: #f4f6f8; }
+.crm-notes p { margin: 0 0 4px; }
+.crm-notes span { font-size: 12px; color: #78909c; }
+.crm-historique li { display: grid; grid-template-columns: 128px 1fr; gap: 8px; padding: 5px 0; border-bottom: 1px solid #eceff1; font-size: 13px; }
+.crm-date { color: #78909c; font-size: 12px; }
+
+@media (max-width: 560px) {
+  .crm-fiche { padding: 16px 16px 32px; }
+  .crm-chiffres, .crm-grille { grid-template-columns: 1fr; }
+  .crm-historique li { grid-template-columns: 1fr; gap: 2px; }
+}
+
+/* Icônes SVG (web/icones.py) dans les liens et boutons. */
+.lien-suivi, .btn-prendre, .pris-moi, .pris-autre, .btn-fiche-lien, .crm-contact a, .crm-lecture-seule,
+.map-link, .roof-shared, .roof-exclusive, .contact a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.crm-fermer { display: inline-grid; place-items: center; color: #37474f; }
+/* Un numéro de téléphone ne se coupe pas en deux lignes. */
+.contact a { white-space: nowrap; }
+
+/* ---------- page de suivi : chiffres clés ---------- */
+.suivi-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  padding: 20px 28px 6px;
+}
+.suivi-kpi {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #eceff1;
+  border-radius: 12px;
+  background: #fff;
+}
+.suivi-kpi-icone {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: #ddebe0;
+  color: #1f5130;
+  font-size: 18px;
+}
+.suivi-kpi b { display: block; font-size: 20px; color: #1f5130; line-height: 1.2; }
+.suivi-kpi div span { font-size: 12.5px; color: #607d8b; }
+.suivi-kpi.kpi-signe .suivi-kpi-icone { background: #1f5130; color: #fff; }
+.suivi-kpi.kpi-alerte .suivi-kpi-icone { background: #fdecea; color: #c62828; }
+.suivi-kpi.kpi-alerte b { color: #c62828; }
+.suivi-kpi[data-relances] { cursor: pointer; }
+.suivi-kpi[data-relances]:hover { border-color: #c62828; }
+
+/* ---------- barre d'outils et choix de la vue ---------- */
+.suivi-outils { align-items: center; }
+.vue-choix { display: inline-flex; padding: 3px; border-radius: 9px; background: #eceff1; }
+.filters .vue-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #546e7a;
+  font-weight: 600;
+}
+.filters .vue-btn:hover { background: rgba(255, 255, 255, 0.6); }
+.filters .vue-btn[aria-pressed="true"] { background: #fff; color: #1f5130; box-shadow: 0 1px 3px rgba(15, 27, 32, 0.12); }
+.btn-relances { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---------- vue pipeline : une colonne par étape ---------- */
+.kanban {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(230px, 1fr);
+  gap: 12px;
+  padding: 6px 28px 32px;
+  overflow-x: auto;
+  align-items: start;
+}
+.kanban[hidden] { display: none; }
+.kanban-colonne {
+  --etape: #90a4ae;
+  display: flex;
+  flex-direction: column;
+  min-height: 160px;
+  border-radius: 12px;
+  background: #eef2f4;
+  border-top: 4px solid var(--etape);
+}
+.kanban-colonne header { display: flex; align-items: baseline; gap: 8px; padding: 10px 12px 8px; }
+.kanban-titre { font-weight: 700; font-size: 13.5px; color: #263238; }
+.kanban-nombre {
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #fff;
+  color: #37474f;
+  font-size: 12px;
+  font-weight: 700;
+}
+.kanban-total { margin-left: auto; font-size: 12px; color: #607d8b; }
+.kanban-cartes { display: flex; flex-direction: column; gap: 8px; padding: 0 8px 10px; }
+.kanban-vide { margin: 6px 4px; color: #90a4ae; font-size: 12.5px; text-align: center; }
+.kanban-message { grid-column: 1 / -1; margin: 30px 0; color: #607d8b; text-align: center; }
+
+.etape-a_contacter { --etape: #90a4ae; }
+.etape-contacte { --etape: #1e88e5; }
+.etape-rdv_fixe { --etape: #7e57c2; }
+.etape-visite_faite { --etape: #ef6c00; }
+.etape-devis_envoye { --etape: #c9a000; }
+.etape-signe { --etape: #2e7d32; }
+.etape-perdu { --etape: #c62828; }
+
+.op-carte {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #e3e9ec;
+  border-left: 3px solid var(--etape, #90a4ae);
+  border-radius: 9px;
+  background: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(15, 27, 32, 0.05);
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.op-carte:hover { box-shadow: 0 6px 16px rgba(15, 27, 32, 0.12); transform: translateY(-1px); }
+.op-carte:focus-visible { outline: 2px solid #2e7d32; outline-offset: 2px; }
+.op-nom { font-weight: 700; font-size: 13.5px; color: #1f5130; line-height: 1.3; }
+.op-lieu { font-size: 12px; color: #78909c; }
+.op-chiffres { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; font-weight: 600; color: #37474f; }
+.op-chiffres span, .op-action, .op-pied span { display: inline-flex; align-items: center; gap: 5px; }
+.op-action { font-size: 12px; color: #455a64; }
+.op-action.due { color: #c62828; font-weight: 700; }
+.op-sans-action { color: #b26a00; }
+.op-raison { align-self: flex-start; padding: 1px 8px; border-radius: 999px; background: #fdecea; color: #8a1c12; font-size: 11.5px; font-weight: 600; }
+.op-pied { display: flex; justify-content: space-between; gap: 8px; padding-top: 6px; border-top: 1px dashed #e3e9ec; font-size: 11.5px; color: #78909c; }
+.op-commercial { font-weight: 600; color: #546e7a; }
+
+/* ---------- fiche : pipeline de l'opportunité ---------- */
+.crm-pipeline {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  margin: 16px 0 6px;
+  padding: 0;
+  list-style: none;
+}
+.crm-pas { position: relative; text-align: center; }
+/* Trait qui relie chaque étape à la précédente. */
+.crm-pas + .crm-pas::before {
+  content: "";
+  position: absolute;
+  top: 13px;
+  right: 50%;
+  width: 100%;
+  height: 2px;
+  background: #dfe6e9;
+}
+.crm-pas.fait + .crm-pas::before, .crm-pas.actuel::before { background: #2e7d32; }
+.crm-pas button {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.crm-pas button:disabled { cursor: default; background: none; }
+.crm-pastille {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin: 0 auto;
+  border: 2px solid #cfd8dc;
+  border-radius: 50%;
+  background: #fff;
+  color: #78909c;
+  font-size: 12px;
+  font-weight: 700;
+  box-sizing: border-box;
+}
+.crm-pas-nom { display: block; margin-top: 5px; font-size: 10.5px; line-height: 1.25; color: #78909c; }
+.crm-pas button .crm-pas-nom { margin-top: 0; }
+.crm-pas.fait .crm-pastille { border-color: #2e7d32; background: #2e7d32; color: #fff; font-size: 14px; }
+.crm-pas.actuel .crm-pastille { border-color: #2e7d32; background: #fff; color: #1f5130; box-shadow: 0 0 0 4px #ddebe0; }
+.crm-pas.actuel .crm-pas-nom { color: #1f5130; font-weight: 700; }
+.crm-pas.fait .crm-pas-nom { color: #37474f; }
+.crm-pas.abandon .crm-pastille { border-style: dashed; opacity: 0.6; }
+.crm-pas button:not(:disabled):hover .crm-pastille { border-color: #2e7d32; }
+.crm-pas.issue.gagne .crm-pastille { border-color: #1f5130; background: #1f5130; color: #fff; font-size: 14px; }
+.crm-pas.issue.gagne .crm-pas-nom { color: #1f5130; font-weight: 700; }
+.crm-pas.issue.perdu .crm-pastille { border-color: #c62828; background: #c62828; color: #fff; font-size: 14px; }
+.crm-pas.issue.perdu .crm-pas-nom { color: #c62828; font-weight: 700; }
+.crm-pas.issue.avenir .crm-pastille { border-style: dashed; color: #b0bec5; font-size: 14px; }
+.crm-pas.issue.perdu::before { background: #ef9a9a; }
+
+@media (max-width: 760px) {
+  .suivi-kpis, .kanban { padding-left: 16px; padding-right: 16px; }
+}

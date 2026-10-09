@@ -67,16 +67,21 @@
       }
       li.appendChild(nom);
       // Potentiel calculé par l'outil 3 pour les entreprises ajoutées.
+      // Chiffres et icônes en HTML ; catégorie et adresse, venues de Google, échappées.
       const nombre = (n) => Math.round(n).toLocaleString("fr-FR");
+      const ico = (n) => (window.icone ? window.icone(n) : "");
+      const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[c]));
       const potentiel = r.kwc
-        ? `☀️ ${nombre(r.kwc)} kWc${r.production_mwh ? ` · ⚡ ${nombre(r.production_mwh)} MWh/an` : ""}${
-            r.co2_t ? ` · 🌱 ${nombre(r.co2_t)} t CO₂/an` : ""}${
-            r.economies_dh ? ` · 💰 jusqu'à ${nombre(r.economies_dh)} DH/an` : ""}`
+        ? `${ico("soleil")} ${nombre(r.kwc)} kWc${r.production_mwh ? ` · ${ico("eclair")} ${nombre(r.production_mwh)} MWh/an` : ""}${
+            r.co2_t ? ` · ${ico("feuille")} ${nombre(r.co2_t)} t CO₂/an` : ""}${
+            r.economies_dh ? ` · ${ico("billet")} jusqu'à ${nombre(r.economies_dh)} DH/an` : ""}`
         : "";
-      const detail = [potentiel, r.categorie, r.adresse].filter(Boolean).join(" · ");
+      const detail = [potentiel, esc(r.categorie), esc(r.adresse)].filter(Boolean).join(" · ");
       if (detail) {
         const span = document.createElement("span");
-        span.textContent = detail;
+        span.innerHTML = detail;
         li.appendChild(span);
       }
       liste.appendChild(li);

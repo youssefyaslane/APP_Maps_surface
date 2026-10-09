@@ -14,6 +14,7 @@
     crossorigin=""
   />
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+  {{ script_icones() }}
 </head>
 <body>
   {# Le panneau de gauche remplace l'ancienne barre flottante ET le sélecteur
@@ -21,7 +22,7 @@
      à partir des couches elles-mêmes pour que libellés et couleurs de légende
      restent définis au même endroit que les styles). #}
   <button id="rail-toggle" class="rail-toggle" type="button" aria-controls="rail" aria-expanded="true">
-    <span aria-hidden="true">☰</span><span class="sr-only">Afficher ou masquer le panneau</span>
+    {{ icone("menu") }}<span class="sr-only">Afficher ou masquer le panneau</span>
   </button>
 
   <aside class="rail" id="rail">
@@ -48,7 +49,7 @@
             autocomplete="off"
             aria-label="Rechercher un lieu ou des coordonnées"
           />
-          <button id="search-btn" class="search-btn" type="submit" aria-label="Rechercher">🔍</button>
+          <button id="search-btn" class="search-btn" type="submit" aria-label="Rechercher">{{ icone("loupe") }}</button>
         </form>
       </section>
 
@@ -85,7 +86,7 @@
 
       <section class="rail-section">
         <h2 class="rail-legend">Outils</h2>
-        <button id="points-select-btn" class="zone-btn" type="button">✏️ Tracer un toit</button>
+        <button id="points-select-btn" class="zone-btn" type="button">{{ icone("crayon") }} Tracer un toit</button>
       </section>
     </div>
 
@@ -97,19 +98,19 @@
   <div id="tooltip" class="tooltip hidden"></div>
   <div id="status" class="status hidden"></div>
   <div id="points-controls" class="points-controls hidden">
-    <button id="points-confirm-btn" type="button">✓ Valider</button>
-    <button id="points-cancel-btn" type="button">✗ Annuler</button>
+    <button id="points-confirm-btn" type="button">{{ icone("valide") }} Valider</button>
+    <button id="points-cancel-btn" type="button">{{ icone("fermer") }} Annuler</button>
   </div>
 
   <div id="seg-controls" class="points-controls hidden">
     <span id="seg-area" class="seg-area"></span>
-    <button id="seg-confirm-btn" type="button">✓ Enregistrer</button>
+    <button id="seg-confirm-btn" type="button">{{ icone("valide") }} Enregistrer</button>
     <button id="seg-undo-btn" type="button">↩ Annuler le point</button>
-    <button id="seg-cancel-btn" type="button">✗ Abandonner</button>
+    <button id="seg-cancel-btn" type="button">{{ icone("fermer") }} Abandonner</button>
   </div>
 
   <aside id="company-panel" class="company-panel hidden">
-    <button id="company-panel-close" class="company-panel-close" type="button" aria-label="Fermer">✕</button>
+    <button id="company-panel-close" class="company-panel-close" type="button" aria-label="Fermer">{{ icone("fermer") }}</button>
     <div id="company-panel-content"></div>
   </aside>
 
@@ -122,6 +123,8 @@
      redéfinit plus les siennes, elle annonce donc la même puissance que le
      tableau de bord et le calcul en masse. #}
   <script>window.SOLAR_CONFIG = {{ solar_config | tojson }};</script>
+  {# Compte connecté : la fiche d'une entreprise n'ouvre son suivi qu'à son commercial ou à un admin. #}
+  <script>window.CURRENT_USER = {{ {"id": current_user.id, "is_admin": current_user.is_admin} | tojson if current_user else "null" }};</script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
   {% include "_chatbot.html" %}
 </body>
