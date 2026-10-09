@@ -448,40 +448,6 @@ async function renderPrise(props) {
   });
 }
 
-function renderEquipped(props) {
-  const box = document.getElementById("company-equipped");
-  if (!box) return;
-  box.innerHTML = `
-    <p class="equipped-note">${
-      props.equipped
-        ? `${icone("valide")} Déjà équipée de panneaux : retirée de la liste des prospects.`
-        : "Cette entreprise a déjà des panneaux solaires ?"
-    }</p>
-    <button type="button" class="equipped-toggle${props.equipped ? " is-equipped" : ""}">${
-      props.equipped ? "Rétablir comme prospect" : "Marquer « déjà équipée »"
-    }</button>
-  `;
-  box.querySelector("button").addEventListener("click", async (e) => {
-    const btn = e.currentTarget;
-    btn.disabled = true;
-    try {
-      const resp = await fetch(`/api/companies/${props.id}/equipped`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ equipped: !props.equipped }),
-      });
-      if (!resp.ok) throw new Error();
-      props.equipped = !props.equipped;
-      renderEquipped(props);
-      refreshCompanyRoofStatus();
-    } catch {
-      btn.disabled = false;
-      setStatus("L'enregistrement a échoué. Réessayez.", true);
-      setTimeout(() => setStatus(null), 2500);
-    }
-  });
-}
-
 function openCompanyPanel(props, latlng) {
   const categoryBadge = props.category
     ? `<span class="field-category">${escapeHtml(props.category)}</span>`
@@ -499,10 +465,8 @@ function openCompanyPanel(props, latlng) {
       <span class="field-body"><span class="field-label">Toit</span>Recherche...</span>
     </div>
     <div class="company-prise" id="company-prise"></div>
-    <div class="company-equipped" id="company-equipped"></div>
   `;
   renderPrise(props);
-  renderEquipped(props);
   companyPanelEl.classList.remove("hidden");
   if (companyRoofHighlight) {
     map.removeLayer(companyRoofHighlight);
